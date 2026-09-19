@@ -11,7 +11,7 @@
 | 上位文書 | [コンセプト](cencept.md)、[ストーリーボード](storyboard.md) |
 | 技術資料 | [Wikipedia API](refs/wikipedia-api.md)、[関連記事の可視化手法](refs/wikipedia-graph.md)、[グラフUIサンプル](refs/graph-ui-sample.html) |
 
-本書は `index_claude.html` と `index_codex.html` の長所を統合した最終成果物 `index.html` の仕様を定義する。実装完了時は本書と成果物を相互に照合し、差異があれば実装または本書を修正する。
+本書は `proto/index_claude.html` と `proto/index_codex.html` の長所を統合した最終成果物 `index.html` の仕様を定義する。実装完了時は本書と成果物を相互に照合し、差異があれば実装または本書を修正する。
 
 ## 2. 目的と設計原則
 
