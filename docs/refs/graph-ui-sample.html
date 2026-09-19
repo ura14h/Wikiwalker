@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>グラフ UI サンプル</title>
+  <style>
+    body { margin: 0; background: #000; font-family: sans-serif; }
+    #hint { position: absolute; top: 12px; left: 12px; color: #aaa; font-size: 13px; pointer-events: none; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://esm.sh/three", "three/": "https://esm.sh/three/" } }
+  </script>
+</head>
+<body>
+  <div id="hint">クリック: ノードを選択して関連ノードを展開 / ドラッグ: 回転 / Shift+ドラッグ: 平行移動 / ホイール: ズーム</div>
+  <div id="graph"></div>
+
+  <script type="module">
+    import ForceGraph3D from 'https://esm.sh/3d-force-graph';
+    import SpriteText from 'https://esm.sh/three-spritetext';
+    import * as THREE from 'three';
+
+    // ---- 設定 ---------------------------------------------------------------
+
+    // 展開
+    const ADD_INTERVAL = 500;      // 関連ノードを1つ追加する間隔 (ms)
+    const CROSS_LINK_RATE = 0.1;   // 追加ノードが親以外の既存ノードとも繋がる確率
+
+    // カメラ
+    const FOCUS_DISTANCE = 150;    // 選択ノードとカメラの距離
+    const FOCUS_DURATION = 1000;   // カメラ移動のアニメーション時間 (ms)
+
+    // 見た目
+    const DEPTH_COLORS = ['#8ab4f8', '#81c995', '#fdd663', '#f28b82', '#c58af9', '#78d9ec'];
+    const SELECTED_COLOR = '#ffffff';
+
+    // フォグ: 選択ノードからの距離が NEAR までは BASE_OPACITY、FAR 以上で MIN_OPACITY
+    const FOG_NEAR = 60;
+    const FOG_FAR = 500;
+    const BASE_OPACITY = 0.6;
+    const MIN_OPACITY = 0.2;
+
+    // ---- 状態 ---------------------------------------------------------------
+
+    const nodes = [];
+    const links = [];
+    let selected = null;     // 現在選択中のノード
+    let expandTimer = null;  // 関連ノード追加中のタイマー
+    let nextId = 0;
+
+    // ---- 見た目 -------------------------------------------------------------
+
+    function nodeStyle(node) {
+      const isSelected = node === selected;
+      return {
+        isSelected,
+        color: isSelected ? SELECTED_COLOR : DEPTH_COLORS[node.depth % DEPTH_COLORS.length],
+        radius: isSelected ? 9 : node.expanded ? 7 : 5,
+        labelHeight: isSelected ? 5 : 3.5,
+        opacity: isSelected ? 1 : fogOpacity(node),
+      };
+    }
+
+    // 選択ノードからの距離を不透明度に変換する
+    function fogOpacity(node) {
+      const d = Math.hypot(node.x - selected.x, node.y - selected.y, node.z - selected.z);
+      const t = THREE.MathUtils.clamp((d - FOG_NEAR) / (FOG_FAR - FOG_NEAR), 0, 1);
+      return THREE.MathUtils.lerp(BASE_OPACITY, MIN_OPACITY, t);
+    }
+
+    // 球体 + その真上にテキストラベル
+    function createNodeObject(node) {
+      const { isSelected, color, radius, labelHeight, opacity } = nodeStyle(node);
+
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 16, 8),
+        new THREE.MeshLambertMaterial({ color, transparent: !isSelected, opacity })
+      );
+
+      const label = new SpriteText(node.name, labelHeight, color);
+      label.position.y = radius + labelHeight;
+      label.material.opacity = opacity;
+
+      // レイアウト変化時にフォグを更新するため、対象マテリアルを保持しておく
+      node.__fogMaterials = isSelected ? [] : [sphere.material, label.material];
+
+      return new THREE.Group().add(sphere, label);
+    }
+
+    function updateFog() {
+      for (const node of nodes) {
+        const opacity = fogOpacity(node);
+        for (const material of node.__fogMaterials) material.opacity = opacity;
+      }
+    }
+
+    // ---- グラフ -------------------------------------------------------------
+
+    // OrbitControls: ドラッグで回転、Shift (or Ctrl) + ドラッグで平行移動
+    const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph'))
+      .nodeThreeObject(createNodeObject)
+      .linkOpacity(0.4)
+      .d3VelocityDecay(0.6)  // 動きを減衰させてレイアウトの揺れを抑える
+      .onEngineTick(updateFog)
+      .onNodeClick(node => {
+        selectNode(node);
+        focusNode(node);
+        expandNode(node);
+      });
+
+    // ---- 操作 ---------------------------------------------------------------
+
+    // 選択ノードを強調表示し、位置を固定してレイアウト変化の影響を受けないようにする
+    function selectNode(node) {
+      if (selected) { delete selected.fx; delete selected.fy; delete selected.fz; }
+      selected = node;
+      Object.assign(node, { fx: node.x, fy: node.y, fz: node.z });
+      Graph.nodeThreeObject(createNodeObject);  // 全ノードを新しい選択状態で再描画
+    }
+
+    // 現在の視線方向を保ったまま、カメラを選択ノードの手前まで移動する
+    function focusNode(node) {
+      const camera = Graph.cameraPosition();
+      const direction = new THREE.Vector3(camera.x - node.x, camera.y - node.y, camera.z - node.z);
+      if (direction.lengthSq() === 0) direction.set(0, 0, 1);
+      direction.setLength(FOCUS_DISTANCE);
+
+      Graph.cameraPosition(
+        { x: node.x + direction.x, y: node.y + direction.y, z: node.z + direction.z },
+        node,
+        FOCUS_DURATION
+      );
+    }
+
+    // 関連ノードを一定間隔で1つずつ追加する
+    function expandNode(parent) {
+      if (parent.expanded) return;
+      parent.expanded = true;
+
+      clearInterval(expandTimer);  // 展開中に別ノードが選択されたら前の展開を止める
+      const queue = fetchRelated(parent);
+
+      expandTimer = setInterval(() => {
+        const child = queue.shift();
+        child ? addNode(child, parent) : clearInterval(expandTimer);
+      }, ADD_INTERVAL);
+    }
+
+    // ノードを親に繋いでグラフに追加する。たまに別の既存ノードにも繋いでネットワークらしくする
+    function addNode(node, parent) {
+      Object.assign(node, { x: parent.x, y: parent.y, z: parent.z });  // 親の位置から出現させる
+      const crossLinkTo = Math.random() < CROSS_LINK_RATE ? pickRandom(nodes.filter(n => n !== parent)) : null;
+
+      nodes.push(node);
+      links.push({ source: parent.id, target: node.id });
+      if (crossLinkTo) links.push({ source: crossLinkTo.id, target: node.id });
+      Graph.graphData({ nodes, links });
+    }
+
+    // ---- データ -------------------------------------------------------------
+
+    // 関連ノードのダミー生成 (実アプリではここを API 呼び出しに置き換える)
+    function fetchRelated(parent) {
+      const count = 6 + Math.floor(Math.random() * 3);  // 6〜8個
+      return Array.from({ length: count }, () => createNode(`${parent.name}-${nextId}`, parent.depth + 1));
+    }
+
+    function createNode(name, depth) {
+      return { id: nextId++, name, depth, expanded: false };
+    }
+
+    function pickRandom(array) {
+      return array[Math.floor(Math.random() * array.length)];
+    }
+
+    // ---- 初期化 -------------------------------------------------------------
+
+    const root = Object.assign(createNode('Root', 0), { x: 0, y: 0, z: 0 });
+    nodes.push(root);
+    Graph.graphData({ nodes, links });
+    selectNode(root);
+    focusNode(root);  // 明示的にカメラを置き、ノード追加時の自動ズームアウトを止める
+    expandNode(root);
+  </script>
+</body>
+</html>
