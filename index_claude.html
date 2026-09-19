@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wikiwalker</title>
+  <style>
+    :root {
+      --bg: #04060d;
+      --panel: rgba(10, 16, 32, 0.82);
+      --panel-border: rgba(140, 180, 255, 0.22);
+      --text: #dfe7f5;
+      --muted: #8a97b3;
+      --accent: #8ab4f8;
+      --cluster: #f2c56b;
+      --danger: #f28b82;
+      --font-ui: "Hiragino Sans", "Noto Sans JP", "Segoe UI", system-ui, sans-serif;
+      --font-title: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", Georgia, serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      overflow: hidden;
+    }
+    a { color: var(--accent); }
+    button {
+      font: inherit;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 999px;
+      padding: 6px 14px;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { color: var(--muted); cursor: default; opacity: 0.6; }
+
+    /* ---- 宇宙 (グラフ描画領域) ---------------------------------------- */
+    #graph { position: fixed; inset: 0; }
+
+    /* ---- ツールバー ---------------------------------------------------- */
+    #toolbar {
+      position: fixed; top: 16px; left: 16px; right: 16px;
+      display: flex; align-items: flex-start; gap: 10px;
+      pointer-events: none;
+    }
+    #toolbar > * { pointer-events: auto; }
+    #langButton {
+      width: 44px; height: 44px; padding: 0;
+      font-weight: 700; letter-spacing: 0.04em; flex: none;
+    }
+    #brand {
+      position: absolute; left: 56px; top: -14px;
+      font-family: var(--font-title); font-size: 11px; letter-spacing: 0.3em;
+      color: var(--muted); pointer-events: none;
+    }
+    #searchBox { position: relative; flex: 1; max-width: 520px; }
+    #searchInput {
+      width: 100%; height: 44px; padding: 0 16px;
+      font: inherit; font-size: 16px; color: var(--text);
+      background: var(--panel); border: 1px solid var(--panel-border);
+      border-radius: 22px; outline: none; backdrop-filter: blur(6px);
+    }
+    #searchInput:focus { border-color: var(--accent); }
+    #searchList {
+      position: absolute; left: 0; right: 0; top: 50px; margin: 0; padding: 6px 0;
+      list-style: none; background: var(--panel); border: 1px solid var(--panel-border);
+      border-radius: 12px; backdrop-filter: blur(10px); max-height: 60vh; overflow-y: auto;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    }
+    #searchList li { padding: 8px 16px; cursor: pointer; }
+    #searchList li.active { background: rgba(138, 180, 248, 0.18); }
+    #searchList .title { font-weight: 600; }
+    #searchList .snippet { font-size: 12px; color: var(--muted); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    #searchList .snippet mark { background: none; color: var(--accent); font-weight: 600; }
+    #searchList .empty { color: var(--muted); cursor: default; }
+    #historyNav { margin-left: auto; display: flex; gap: 6px; }
+
+    /* ---- 記事詳細パネル ------------------------------------------------ */
+    #detail {
+      position: fixed; right: 16px; bottom: 44px; width: 360px; max-width: calc(100vw - 32px);
+      height: 46vh; display: flex; flex-direction: column;
+      background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px;
+      backdrop-filter: blur(10px); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    }
+    #detail[hidden] { display: none; }
+    #detailHead { padding: 14px 18px 10px; border-bottom: 1px solid var(--panel-border); }
+    #detailHead h2 { margin: 0; font-family: var(--font-title); font-size: 20px; font-weight: 600; }
+    #detailHead h2 a { color: inherit; text-decoration: none; }
+    #detailHead h2 a:hover { text-decoration: underline; }
+    #detailMeta { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+    #detailBody { padding: 12px 18px; overflow-y: auto; line-height: 1.7; font-size: 13.5px; }
+    #detailBody p { margin: 0 0 0.8em; }
+    #detailBody ul.members { margin: 0; padding-left: 1.2em; }
+    #detailBody ul.members li { cursor: pointer; }
+    #detailBody ul.members li:hover { color: var(--accent); text-decoration: underline; }
+    #detailFoot {
+      padding: 8px 18px; border-top: 1px solid var(--panel-border);
+      font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px;
+    }
+    .spinner {
+      width: 12px; height: 12px; border-radius: 50%; flex: none;
+      border: 2px solid var(--panel-border); border-top-color: var(--accent);
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- 通知・権利表示 ------------------------------------------------ */
+    #status {
+      position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%);
+      padding: 6px 14px; border-radius: 999px; font-size: 12px;
+      background: var(--panel); border: 1px solid var(--panel-border); color: var(--muted);
+      transition: opacity 0.3s; pointer-events: none;
+    }
+    #status.error { color: var(--danger); }
+    #status[hidden] { display: none; }
+    #attribution {
+      position: fixed; left: 12px; bottom: 10px; font-size: 11px; color: var(--muted);
+      max-width: 60vw; line-height: 1.5;
+    }
+    #attribution a { color: var(--muted); }
+
+    /* ---- 言語選択ダイアログ ------------------------------------------- */
+    #langDialog {
+      background: var(--panel); color: var(--text); border: 1px solid var(--panel-border);
+      border-radius: 14px; padding: 0; width: 420px; max-width: calc(100vw - 32px);
+      backdrop-filter: blur(12px); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+    }
+    #langDialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+    #langDialog header { padding: 14px 18px; border-bottom: 1px solid var(--panel-border); display: flex; gap: 10px; align-items: center; }
+    #langDialog header h3 { margin: 0; font-family: var(--font-title); font-weight: 600; font-size: 16px; flex: 1; }
+    #langFilter {
+      width: 100%; padding: 8px 12px; margin: 12px 18px 0; width: calc(100% - 36px);
+      font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--panel-border); border-radius: 8px; outline: none;
+    }
+    #langList { list-style: none; margin: 8px 0 0; padding: 0 0 8px; max-height: 50vh; overflow-y: auto; }
+    #langList li { padding: 7px 18px; cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+    #langList li:hover, #langList li.current { background: rgba(138, 180, 248, 0.18); }
+    #langList .code { font-size: 11px; color: var(--muted); width: 3em; flex: none; }
+    #langList .local { font-size: 12px; color: var(--muted); margin-left: auto; }
+    #langList .empty { color: var(--muted); cursor: default; }
+
+    @media (max-width: 720px) {
+      #detail { width: calc(100vw - 32px); height: 38vh; }
+      #brand { display: none; }
+    }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://esm.sh/three", "three/": "https://esm.sh/three/" } }
+  </script>
+</head>
+<body>
+  <div id="graph"></div>
+
+  <header id="toolbar">
+    <button id="langButton" title="言語を選択">JA</button>
+    <span id="brand">WIKIWALKER</span>
+    <div id="searchBox">
+      <input id="searchInput" type="text" placeholder="記事を検索して宇宙へ出発" autocomplete="off" spellcheck="false">
+      <ul id="searchList" hidden></ul>
+    </div>
+    <nav id="historyNav">
+      <button id="prevButton" disabled title="直前に選択した記事へ戻る">Prev</button>
+      <button id="nextButton" disabled title="戻る前の記事へ進む">Next</button>
+    </nav>
+  </header>
+
+  <aside id="detail" hidden>
+    <div id="detailHead">
+      <h2 id="detailTitle"></h2>
+      <div id="detailMeta"></div>
+    </div>
+    <div id="detailBody"></div>
+    <div id="detailFoot"></div>
+  </aside>
+
+  <div id="status" hidden></div>
+
+  <footer id="attribution">
+    テキストは <a id="attrSource" href="https://www.wikipedia.org/" target="_blank" rel="noopener">Wikipedia</a>
+    の記事を <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.ja" target="_blank" rel="noopener">CC BY-SA 4.0</a>
+    の下で利用しています。
+  </footer>
+
+  <dialog id="langDialog">
+    <header>
+      <h3>言語を選択</h3>
+      <button id="langClose" type="button">閉じる</button>
+    </header>
+    <input id="langFilter" type="text" placeholder="言語名またはコードで絞り込み" autocomplete="off">
+    <ul id="langList"></ul>
+  </dialog>
+
+  <script type="module">
+    import ForceGraph3D from 'https://esm.sh/3d-force-graph';
+    import SpriteText from 'https://esm.sh/three-spritetext';
+    import * as THREE from 'three';
+
+    // =====================================================================
+    // 設定
+    // =====================================================================
+
+    const CONFIG = {
+      // Wikipedia API へ送る識別子 (API Etiquette)
+      userAgent: 'Wikiwalker/1.0 (single-file local browser app)',
+
+      // 呼び出しレート: 同時1件・間隔 320ms (200件/分, 5件/秒 未満を守る)。
+      // バックグラウンド収集は、1秒超の応答の後 5秒休む (Robot policy)。
+      request: { minGap: 320, slowThreshold: 1000, slowGap: 5000 },
+
+      // 検索
+      search: { debounce: 250, limit: 10 },
+
+      // 関連記事の収集と集約
+      related: {
+        directMax: 16,       // 導入部のリンクから直接ノードにする上限
+        linkBatch: 50,       // generator=links の 1 回あたり件数
+        maxLinkRequests: 8,  // 出リンク列挙の上限リクエスト数 (最大 400 リンク)
+        minClusterSize: 3,   // これ以上の記事が同じカテゴリを共有すれば星団ノードにする
+        maxClusters: 14,     // 星団ノードの上限。超過分は「その他」へ
+        expandLimit: 24,     // 星団を開いたときにグラフへ出す記事数の上限
+        // 集約に向かないカテゴリ (汎用すぎるもの・非表示指定のない保守用カテゴリ)
+        ignoredCategories: [/^存命人物$/, /^Living people$/, /ページ$/, /^(Pages|Articles) /],
+      },
+
+      // グラフの見た目と動き
+      graph: {
+        addInterval: 90,      // ノードを 1 つずつ出現させる間隔 (ms)
+        focusDistance: 280,   // 選択ノードとカメラの距離
+        chargeStrength: -90,  // ノード同士の反発 (負の値ほど広がる)
+        linkDistance: 55,     // 関係線の基準長
+        focusDuration: 900,   // カメラ移動のアニメーション時間 (ms)
+        depthColors: ['#ffffff', '#8ab4f8', '#81c995', '#fdd663', '#f28b82', '#c58af9', '#78d9ec'],
+        clusterColor: '#f2c56b',
+        poolColor: '#7f8aa3',
+        fogNear: 80, fogFar: 600, baseOpacity: 0.75, minOpacity: 0.18,
+        starCount: 2500,
+      },
+
+      // Site matrix を読み込むまでの間に使う言語表 (URL は Site matrix と同じ値)
+      seedSites: [
+        ['ja', '日本語', 'Japanese'], ['en', 'English', 'English'], ['de', 'Deutsch', 'German'],
+        ['fr', 'français', 'French'], ['es', 'español', 'Spanish'], ['it', 'italiano', 'Italian'],
+        ['pt', 'português', 'Portuguese'], ['ru', 'русский', 'Russian'], ['zh', '中文', 'Chinese'],
+        ['ko', '한국어', 'Korean'], ['ar', 'العربية', 'Arabic'], ['nl', 'Nederlands', 'Dutch'],
+        ['pl', 'polski', 'Polish'], ['sv', 'svenska', 'Swedish'], ['uk', 'українська', 'Ukrainian'],
+        ['vi', 'Tiếng Việt', 'Vietnamese'], ['id', 'Bahasa Indonesia', 'Indonesian'], ['tr', 'Türkçe', 'Turkish'],
+      ].map(([code, autonym, localname]) => ({ code, autonym, localname, baseUrl: `https://${code}.wikipedia.org` })),
+    };
+
+    // =====================================================================
+    // 共通ユーティリティ
+    // =====================================================================
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const abortError = () => new DOMException('aborted', 'AbortError');
+    const isAbort = (error) => error?.name === 'AbortError';
+    const byTitle = (a, b) => a.title.localeCompare(b.title, 'ja');
+    const el = (id) => document.getElementById(id);
+
+    // Wikipedia 由来の HTML から、表示に不要・危険な要素を落とす
+    function sanitizeHtml(html) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      doc.querySelectorAll('script, style, img, iframe, link, object, embed').forEach((node) => node.remove());
+      for (const node of doc.body.querySelectorAll('*')) {
+        for (const attr of [...node.attributes]) {
+          if (attr.name.startsWith('on') || attr.name === 'href' || attr.name === 'src' || attr.name === 'style') {
+            node.removeAttribute(attr.name);
+          }
+        }
+      }
+      return doc.body.innerHTML;
+    }
+
+    // =====================================================================
+    // 通信: リクエストキュー
+    // =====================================================================
+
+    // Wikipedia の利用制限を守るため、全リクエストを 1 本の直列キューに通す。
+    // priority が高いタスク (検索・記事表示) は待ち行列の先頭に割り込む。
+    class RequestQueue {
+      constructor({ minGap, slowThreshold, slowGap }) {
+        Object.assign(this, { minGap, slowThreshold, slowGap });
+        this.tasks = [];
+        this.readyAt = 0;           // 次のリクエストを開始してよい時刻
+        this.backgroundReadyAt = 0; // バックグラウンド (priority 0) 向けの休止時刻
+        this.pumping = false;
+      }
+
+      enqueue(run, { priority = 0, signal } = {}) {
+        return new Promise((resolve, reject) => {
+          const task = { run, priority, signal, resolve, reject };
+          const index = this.tasks.findIndex((other) => other.priority < priority);
+          index < 0 ? this.tasks.push(task) : this.tasks.splice(index, 0, task);
+          this.pump();
+        });
+      }
+
+      // サーバーから待機を指示されたとき (Retry-After など) に全体を止める
+      holdFor(ms) {
+        this.readyAt = Math.max(this.readyAt, Date.now() + ms);
+      }
+
+      readyFor(task) {
+        return task.priority > 0 ? this.readyAt : Math.max(this.readyAt, this.backgroundReadyAt);
+      }
+
+      async pump() {
+        if (this.pumping) return;
+        this.pumping = true;
+        while (this.tasks.length) {
+          const task = this.tasks[0];
+          if (task.signal?.aborted) { this.tasks.shift(); task.reject(abortError()); continue; }
+
+          // 待機は小刻みにして、その間に割り込んだ優先タスクを先に通せるようにする
+          const wait = this.readyFor(task) - Date.now();
+          if (wait > 0) { await sleep(Math.min(wait, 100)); continue; }
+          this.tasks.shift();
+
+          const started = Date.now();
+          try { task.resolve(await task.run()); } catch (error) { task.reject(error); }
+
+          const took = Date.now() - started;
+          this.readyAt = Date.now() + this.minGap;
+          if (took > this.slowThreshold) this.backgroundReadyAt = Date.now() + this.slowGap;
+        }
+        this.pumping = false;
+      }
+    }
+
+    // =====================================================================
+    // 通信: Wikipedia API
+    // =====================================================================
+
+    // MediaWiki Action API の呼び出しと、応答をアプリ内の記事レコードへ整える責務
+    class WikiApi {
+      constructor(queue, onNotice) {
+        this.queue = queue;
+        this.onNotice = onNotice;
+        this.site = null;
+        this.cache = new Map();  // URL → 応答 Promise
+      }
+
+      setSite(site) {
+        this.site = site;
+        this.cache.clear();
+      }
+
+      get endpoint() { return `${this.site.baseUrl}/w/api.php`; }
+
+      // ---- 低レベル: リクエスト発行 --------------------------------------
+
+      async request(params, { priority = 0, signal, endpoint = this.endpoint } = {}) {
+        const query = new URLSearchParams({ format: 'json', formatversion: '2', origin: '*', ...params });
+        query.sort();  // キャッシュ一致率を上げるためパラメーター順を正規化する
+        const url = `${endpoint}?${query}`;
+        try {
+          return await this.cachedFetch(url, { priority, signal });
+        } catch (error) {
+          // 同じ URL を共有していた別の呼び出し元が中断しただけなら、自分の signal で出し直す
+          if (isAbort(error) && !signal?.aborted) return this.cachedFetch(url, { priority, signal });
+          throw error;
+        }
+      }
+
+      cachedFetch(url, { priority, signal }) {
+        if (this.cache.has(url)) return this.cache.get(url);
+        const promise = this.queue.enqueue(() => this.fetchJson(url, signal), { priority, signal });
+        this.cache.set(url, promise);
+        promise.catch(() => this.cache.delete(url));
+        return promise;
+      }
+
+      async fetchJson(url, signal) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const response = await fetch(url, { signal, headers: { 'Api-User-Agent': CONFIG.userAgent } });
+          if (response.status === 429 || response.status === 503) {
+            const seconds = Number(response.headers.get('Retry-After')) || 5;
+            this.onNotice(`Wikipedia が混雑しています。${seconds} 秒待機します`);
+            this.queue.holdFor(seconds * 1000);
+            await sleep(seconds * 1000);
+            continue;
+          }
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+          const data = await response.json();
+          if (data.error?.code === 'maxlag') { await sleep(5000); continue; }
+          if (data.error) throw new Error(`${data.error.code}: ${data.error.info}`);
+          return data;
+        }
+        throw new Error('Wikipedia API が応答しませんでした');
+      }
+
+      // ---- 記事レコードへの正規化 --------------------------------------
+
+      static normalizePage(raw) {
+        return {
+          pageid: raw.pageid,
+          title: raw.title,
+          ns: raw.ns,
+          url: raw.fullurl ?? null,
+          extract: raw.extract ?? null,
+          categories: (raw.categories ?? []).map((c) => c.title.replace(/^[^:]+:/, '')),
+          disambiguation: Boolean(raw.pageprops && 'disambiguation' in raw.pageprops),
+          missing: Boolean(raw.missing),
+        };
+      }
+
+      // 継続取得で同じページが分割して届いたときに、カテゴリ等を追記して束ねる
+      static mergePage(map, raw) {
+        const page = WikiApi.normalizePage(raw);
+        const known = map.get(page.pageid);
+        if (!known) { map.set(page.pageid, page); return; }
+        known.categories = [...new Set([...known.categories, ...page.categories])];
+        known.disambiguation ||= page.disambiguation;
+      }
+
+      // ---- 高レベル: アプリが使う操作 -----------------------------------
+
+      // インクリメンタル検索 (list=search)
+      async search(term, signal) {
+        const data = await this.request({
+          action: 'query', list: 'search', srsearch: term, srnamespace: 0,
+          srlimit: CONFIG.search.limit, srprop: 'snippet',
+        }, { priority: 2, signal });
+        return data.query?.search ?? [];
+      }
+
+      // 記事 1 件の詳細 (情報・導入部の抜粋・カテゴリ・曖昧さ回避属性)
+      async page({ pageid, title }, signal) {
+        const data = await this.request({
+          action: 'query', ...(pageid ? { pageids: pageid } : { titles: title }),
+          prop: 'info|extracts|pageprops|categories', inprop: 'url',
+          exintro: 1, exlimit: 1, ppprop: 'disambiguation', clshow: '!hidden', cllimit: 50, redirects: 1,
+        }, { priority: 1, signal });
+        const raw = data.query?.pages?.[0];
+        if (!raw || raw.missing || raw.invalid) throw new Error(`記事が見つかりません: ${title ?? pageid}`);
+        return WikiApi.normalizePage(raw);
+      }
+
+      // 導入部 (section=0) に現れる内部リンクのタイトルを、本文中の出現順で返す
+      async leadLinkTitles(pageid, signal) {
+        const data = await this.request({ action: 'parse', pageid, section: 0, prop: 'text', redirects: 1 }, { priority: 1, signal });
+        const doc = new DOMParser().parseFromString(data.parse?.text ?? '', 'text/html');
+        // 導入部でも本題から遠いリンク (情報ボックス・脚注・出典一覧・案内文など) は除く
+        doc.querySelectorAll('table, figure, sup, cite, style, ol.references, .mw-references-wrap, .reflist, .hatnote, .reference, .thumb, .navbox, .noprint, .mw-editsection')
+          .forEach((node) => node.remove());
+
+        const titles = [];
+        for (const anchor of doc.querySelectorAll('a[href^="/wiki/"]')) {
+          const title = anchor.getAttribute('title');
+          if (!title || anchor.classList.contains('new') || anchor.classList.contains('mw-file-description')) continue;
+          if (!titles.includes(title)) titles.push(title);
+        }
+        return titles;
+      }
+
+      // タイトル群 (最大 50 件) をページに解決する。リダイレクトは辿り、入力順を保つ
+      async resolveTitles(titles, signal) {
+        if (titles.length === 0) return [];
+        const data = await this.request({
+          action: 'query', titles: titles.join('|'), prop: 'info|pageprops|categories', inprop: 'url',
+          ppprop: 'disambiguation', clshow: '!hidden', cllimit: 'max', redirects: 1,
+        }, { priority: 1, signal });
+
+        const renamed = new Map();
+        for (const entry of [...(data.query?.normalized ?? []), ...(data.query?.redirects ?? [])]) renamed.set(entry.from, entry.to);
+        const pages = new Map((data.query?.pages ?? []).map((raw) => [raw.title, WikiApi.normalizePage(raw)]));
+
+        const resolved = [];
+        for (const title of titles) {
+          let name = title;
+          for (let hop = 0; hop < 3 && renamed.has(name); hop++) name = renamed.get(name);
+          const page = pages.get(name);
+          if (page && !page.missing && page.ns === 0 && !resolved.includes(page)) resolved.push(page);
+        }
+        return resolved;
+      }
+
+      // 出リンク先を属性付きでバッチごとに列挙する (generator=links)。
+      // 1 バッチが batchcomplete になるまで、同じページの属性を束ねてから yield する
+      async *linkedPages(pageid, signal) {
+        let pending = new Map();
+        let cont = {};
+        for (let i = 0; i < CONFIG.related.maxLinkRequests; i++) {
+          const data = await this.request({
+            action: 'query', pageids: pageid, generator: 'links', gplnamespace: 0, gpllimit: CONFIG.related.linkBatch,
+            prop: 'categories|pageprops', clshow: '!hidden', cllimit: 'max', ppprop: 'disambiguation', redirects: 1, ...cont,
+          }, { priority: 0, signal });
+
+          for (const raw of data.query?.pages ?? []) WikiApi.mergePage(pending, raw);
+          if (data.batchcomplete) { yield [...pending.values()]; pending = new Map(); }
+          if (!data.continue) break;
+          cont = data.continue;
+        }
+        if (pending.size) yield [...pending.values()];
+      }
+
+      // 別言語版で同じ記事のタイトルを引く (prop=langlinks)
+      async langlinkTitle(pageid, lang, signal) {
+        const data = await this.request({ action: 'query', pageids: pageid, prop: 'langlinks', lllang: lang, lllimit: 1 }, { priority: 1, signal });
+        return data.query?.pages?.[0]?.langlinks?.[0]?.title ?? null;
+      }
+
+      // Wikipedia の全言語版一覧 (Site matrix)。URL は文字列連結ではなく応答の値を採用する
+      async loadSites() {
+        const sites = [];
+        let smcontinue;
+        do {
+          const data = await this.request({
+            action: 'sitematrix', smtype: 'language', smlangprop: 'code|name|localname|site',
+            smsiteprop: 'url|code', smlimit: 'max', ...(smcontinue ? { smcontinue } : {}),
+          }, { priority: 0, endpoint: 'https://meta.wikimedia.org/w/api.php' });
+
+          for (const group of Object.values(data.sitematrix ?? {})) {
+            if (!group || !Array.isArray(group.site)) continue;
+            const wiki = group.site.find((site) => site.code === 'wiki' && !('closed' in site) && !('private' in site) && !('fishbowl' in site));
+            if (wiki) sites.push({ code: group.code, autonym: group.name, localname: group.localname, baseUrl: new URL(wiki.url).origin });
+          }
+          smcontinue = data['query-continue']?.sitematrix?.smcontinue ?? data.continue?.smcontinue;
+        } while (smcontinue);
+        return sites;
+      }
+    }
+
+    // =====================================================================
+    // 意味変換: 関連記事を「直接ノード」「星団 (カテゴリ集約) ノード」「その他」へ振り分ける
+    // =====================================================================
+
+    // 決定論的な集約器。同じ順序で同じ候補を与えれば同じ結果になる。
+    //   1. 既存の星団に入れられる候補は、メンバー数が最大の星団へ入れる
+    //   2. 残りの候補から、共有メンバー数が最大のカテゴリを順に星団化する
+    //   3. どこにも入らなかった候補は「その他」プールに置く
+    class RelatedAggregator {
+      constructor({ minClusterSize, maxClusters, ignoredCategories }) {
+        Object.assign(this, { minClusterSize, maxClusters, ignoredCategories });
+        this.clusters = new Map();  // カテゴリ名 → { category, members[] }
+        this.pool = [];             // 星団に入らなかった記事
+        this.seen = new Set();      // 処理済み pageid
+      }
+
+      exclude(pageid) { this.seen.add(pageid); }
+
+      // 候補を追加し、影響のあった星団の一覧を返す
+      addCandidates(pages) {
+        const fresh = pages.filter((page) => !this.seen.has(page.pageid) && !page.missing && !page.disambiguation).sort(byTitle);
+        fresh.forEach((page) => this.seen.add(page.pageid));
+
+        const touched = new Set();
+        const leftovers = [];
+        for (const page of fresh) {
+          const home = this.largestClusterAmong(page.categories);
+          home ? (home.members.push(page), touched.add(home)) : leftovers.push(page);
+        }
+
+        this.pool.push(...leftovers);
+        for (const cluster of this.formClusters()) touched.add(cluster);
+        return [...touched];
+      }
+
+      largestClusterAmong(categories) {
+        let best = null;
+        for (const cluster of this.clusters.values()) {
+          if (!categories.includes(cluster.category)) continue;
+          if (!best || cluster.members.length > best.members.length) best = cluster;
+        }
+        return best;
+      }
+
+      // プールの中で共有数の多いカテゴリから順に星団を切り出す
+      formClusters() {
+        const formed = [];
+        while (this.clusters.size < this.maxClusters) {
+          const category = this.dominantCategory();
+          if (!category) break;
+          const members = this.pool.filter((page) => page.categories.includes(category));
+          this.pool = this.pool.filter((page) => !members.includes(page));
+          const cluster = { category, members };
+          this.clusters.set(category, cluster);
+          formed.push(cluster);
+        }
+        return formed;
+      }
+
+      dominantCategory() {
+        const counts = new Map();
+        for (const page of this.pool) {
+          for (const category of page.categories) {
+            if (!this.ignoredCategories.some((pattern) => pattern.test(category))) counts.set(category, (counts.get(category) ?? 0) + 1);
+          }
+        }
+        let best = null;
+        for (const [category, count] of counts) {
+          if (count < this.minClusterSize) continue;
+          if (!best || count > best.count || (count === best.count && category < best.category)) best = { category, count };
+        }
+        return best?.category ?? null;
+      }
+    }
+
+    // =====================================================================
+    // 表示: 3D グラフ (Wikipedia 宇宙)
+    // =====================================================================
+
+    // ノードの種類: article (記事星) / cluster (星団) / pool (その他)
+    class GraphView {
+      constructor(container, { onNodeClick }) {
+        this.cfg = CONFIG.graph;
+        this.nodes = [];
+        this.links = [];
+        this.byId = new Map();
+        this.selected = null;
+        this.queue = [];       // 出現待ちのノード
+        this.dripTimer = null;
+
+        // OrbitControls: ドラッグで回転、Shift + ドラッグで平行移動、ホイールでズーム
+        this.graph = ForceGraph3D({ controlType: 'orbit' })(container)
+          .backgroundColor('#04060d')
+          .showNavInfo(false)
+          .enableNodeDrag(false)
+          .nodeThreeObject((node) => this.createNodeObject(node))
+          .linkOpacity(0.35)
+          .linkColor(() => '#8ab4f8')
+          .d3VelocityDecay(0.6)  // 動きを減衰させてレイアウトの揺れを抑える
+          .onEngineTick(() => this.updateFog())
+          .onNodeClick((node) => onNodeClick(node));
+
+        this.graph.d3Force('charge').strength(this.cfg.chargeStrength);
+        this.graph.d3Force('link').distance(this.cfg.linkDistance);
+        this.addStarfield();
+        window.addEventListener('resize', () => this.graph.width(window.innerWidth).height(window.innerHeight));
+      }
+
+      // ---- 背景の星空 ---------------------------------------------------
+
+      addStarfield() {
+        const positions = new Float32Array(this.cfg.starCount * 3);
+        for (let i = 0; i < positions.length; i++) positions[i] = (Math.random() - 0.5) * 6000;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({ color: 0xaab4d0, size: 1.6, sizeAttenuation: true, transparent: true, opacity: 0.7 });
+        this.graph.scene().add(new THREE.Points(geometry, material));
+      }
+
+      // ---- ノードの見た目 -----------------------------------------------
+
+      nodeColor(node) {
+        if (node === this.selected) return '#ffffff';
+        if (node.kind === 'cluster') return this.cfg.clusterColor;
+        if (node.kind === 'pool') return this.cfg.poolColor;
+        return this.cfg.depthColors[Math.min(node.depth, this.cfg.depthColors.length - 1)];
+      }
+
+      createNodeObject(node) {
+        const isSelected = node === this.selected;
+        const color = this.nodeColor(node);
+        const opacity = isSelected ? 1 : this.fogOpacity(node);
+        const group = new THREE.Group();
+        const materials = [];
+
+        const radius = isSelected ? 9 : node.kind === 'article' ? (node.expanded ? 7 : 5) : 4;
+        const body = new THREE.Mesh(new THREE.SphereGeometry(radius, 20, 12), new THREE.MeshLambertMaterial({ color, transparent: true, opacity }));
+        group.add(body);
+        materials.push(body.material);
+
+        if (node.kind !== 'article') {
+          // 星団は輪 (環) で囲んで、記事星と見分けられるようにする
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(radius + 4, 0.6, 8, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity }));
+          ring.rotation.x = Math.PI / 2.6;
+          group.add(ring);
+          materials.push(ring.material);
+        }
+        if (isSelected) {
+          const halo = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.7, 20, 12), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12 }));
+          group.add(halo);
+        }
+
+        const label = new SpriteText(node.name, isSelected ? 5 : node.kind === 'article' ? 3.6 : 3.2, color);
+        label.fontFace = 'sans-serif';
+        label.position.y = radius + (isSelected ? 12 : node.kind === 'article' ? 6 : 8);
+        label.material.opacity = opacity;
+        group.add(label);
+        materials.push(label.material);
+
+        node.__sprite = label;
+        node.__fogMaterials = isSelected ? [] : materials;
+        return group;
+      }
+
+      // 選択ノードからの距離を不透明度に変換する (遠い星ほど霞む)
+      fogOpacity(node) {
+        if (!this.selected) return this.cfg.baseOpacity;
+        const d = Math.hypot((node.x ?? 0) - (this.selected.x ?? 0), (node.y ?? 0) - (this.selected.y ?? 0), (node.z ?? 0) - (this.selected.z ?? 0));
+        const t = THREE.MathUtils.clamp((d - this.cfg.fogNear) / (this.cfg.fogFar - this.cfg.fogNear), 0, 1);
+        return THREE.MathUtils.lerp(this.cfg.baseOpacity, this.cfg.minOpacity, t);
+      }
+
+      updateFog() {
+        for (const node of this.nodes) {
+          if (!node.__fogMaterials) continue;
+          const opacity = this.fogOpacity(node);
+          for (const material of node.__fogMaterials) material.opacity = opacity;
+        }
+      }
+
+      refreshStyles() { this.graph.nodeThreeObject((node) => this.createNodeObject(node)); }
+
+      // ---- グラフの編集 -------------------------------------------------
+
+      reset() {
+        clearInterval(this.dripTimer);
+        this.dripTimer = null;
+        this.queue = [];
+        this.nodes = [];
+        this.links = [];
+        this.byId.clear();
+        this.selected = null;
+        this.graph.graphData({ nodes: [], links: [] });
+      }
+
+      has(id) { return this.byId.has(id); }
+      get(id) { return this.byId.get(id); }
+
+      // ノードを親の位置から出現させる (親がなければ原点)。すでにあれば関係線だけ足す
+      add(node, parent = null) {
+        const known = this.byId.get(node.id);
+        if (known) { if (parent) this.link(parent, known); return known; }
+        this.byId.set(node.id, node);
+        this.queue.push({ node, parent });
+        if (!this.dripTimer) this.dripTimer = setInterval(() => this.drip(), this.cfg.addInterval);
+        return node;
+      }
+
+      addNow(node, parent = null) {
+        const added = this.add(node, parent);
+        this.drip();
+        return added;
+      }
+
+      drip() {
+        const entry = this.queue.shift();
+        if (!entry) { clearInterval(this.dripTimer); this.dripTimer = null; return; }
+        const { node, parent } = entry;
+        const origin = parent ?? { x: 0, y: 0, z: 0 };
+        Object.assign(node, { x: origin.x, y: origin.y, z: origin.z });
+        this.nodes.push(node);
+        if (parent) this.links.push({ source: parent.id, target: node.id });
+        this.graph.graphData({ nodes: this.nodes, links: this.links });
+      }
+
+      link(a, b) {
+        const exists = this.links.some((l) => (linkEnd(l.source) === a.id && linkEnd(l.target) === b.id) || (linkEnd(l.source) === b.id && linkEnd(l.target) === a.id));
+        if (exists) return;
+        this.links.push({ source: a.id, target: b.id });
+        this.graph.graphData({ nodes: this.nodes, links: this.links });
+      }
+
+      rename(node, name) {
+        node.name = name;
+        if (node.__sprite) node.__sprite.text = name;
+      }
+
+      // ---- 選択とカメラ -------------------------------------------------
+
+      // 選択ノードを強調し、位置を固定してレイアウト変化の影響を受けないようにする
+      select(node) {
+        if (this.selected) { delete this.selected.fx; delete this.selected.fy; delete this.selected.fz; }
+        this.selected = node;
+        if (node) Object.assign(node, { fx: node.x, fy: node.y, fz: node.z });
+        this.refreshStyles();
+      }
+
+      // 現在の視線方向を保ったまま、カメラを選択ノードの手前まで移動する
+      focus(node) {
+        const camera = this.graph.cameraPosition();
+        const direction = new THREE.Vector3(camera.x - node.x, camera.y - node.y, camera.z - node.z);
+        if (direction.lengthSq() === 0) direction.set(0, 0, 1);
+        direction.setLength(this.cfg.focusDistance);
+        this.graph.cameraPosition({ x: node.x + direction.x, y: node.y + direction.y, z: node.z + direction.z }, node, this.cfg.focusDuration);
+      }
+    }
+
+    // force-graph はリンクの source/target を ID から実体オブジェクトへ置き換える
+    const linkEnd = (end) => (typeof end === 'object' ? end.id : end);
+
+    // =====================================================================
+    // 表示: インクリメンタル検索
+    // =====================================================================
+
+    class SearchBox {
+      constructor(api, { onSelect }) {
+        this.api = api;
+        this.onSelect = onSelect;
+        this.input = el('searchInput');
+        this.list = el('searchList');
+        this.results = [];
+        this.active = -1;
+        this.timer = null;
+        this.controller = null;
+
+        this.input.addEventListener('input', () => this.schedule());
+        this.input.addEventListener('keydown', (event) => this.onKey(event));
+        this.input.addEventListener('focus', () => { if (this.results.length) this.list.hidden = false; });
+        this.input.addEventListener('blur', () => setTimeout(() => this.hide(), 150));
+        document.addEventListener('keydown', (event) => {
+          if (event.key === '/' && document.activeElement !== this.input && !event.isComposing) { event.preventDefault(); this.input.focus(); }
+        });
+      }
+
+      setValue(text) { this.input.value = text; this.hide(); }
+
+      schedule() {
+        clearTimeout(this.timer);
+        const term = this.input.value.trim();
+        if (!term) { this.results = []; this.hide(); return; }
+        this.timer = setTimeout(() => this.run(term), CONFIG.search.debounce);
+      }
+
+      async run(term) {
+        this.controller?.abort();
+        this.controller = new AbortController();
+        try {
+          const results = await this.api.search(term, this.controller.signal);
+          if (this.input.value.trim() !== term) return;  // すでに入力が変わっている
+          this.results = results;
+          this.active = -1;
+          this.render();
+        } catch (error) {
+          if (!isAbort(error)) this.renderMessage(`検索に失敗しました: ${error.message}`);
+        }
+      }
+
+      render() {
+        this.list.innerHTML = '';
+        if (this.results.length === 0) return this.renderMessage('該当する記事がありません');
+        this.results.forEach((result, index) => {
+          const item = document.createElement('li');
+          item.classList.toggle('active', index === this.active);
+          item.innerHTML = `<div class="title"></div><div class="snippet"></div>`;
+          item.querySelector('.title').textContent = result.title;
+          item.querySelector('.snippet').innerHTML = SearchBox.snippetHtml(result.snippet);
+          item.addEventListener('mousedown', (event) => { event.preventDefault(); this.choose(index); });
+          item.addEventListener('mousemove', () => this.highlight(index));
+          this.list.appendChild(item);
+        });
+        this.list.hidden = false;
+      }
+
+      renderMessage(text) {
+        this.list.innerHTML = '';
+        const item = document.createElement('li');
+        item.className = 'empty';
+        item.textContent = text;
+        this.list.appendChild(item);
+        this.list.hidden = false;
+      }
+
+      // 検索 API の snippet は強調用 HTML を含むので、強調だけ残して他のタグを落とす
+      static snippetHtml(snippet = '') {
+        const doc = new DOMParser().parseFromString(snippet, 'text/html');
+        doc.querySelectorAll('span.searchmatch').forEach((span) => { const mark = document.createElement('mark'); mark.textContent = span.textContent; span.replaceWith(mark); });
+        doc.body.querySelectorAll('*:not(mark)').forEach((node) => node.replaceWith(...node.childNodes));
+        return doc.body.innerHTML;
+      }
+
+      highlight(index) {
+        this.active = index;
+        [...this.list.children].forEach((item, i) => item.classList.toggle('active', i === index));
+        this.list.children[index]?.scrollIntoView({ block: 'nearest' });
+      }
+
+      onKey(event) {
+        if (event.isComposing) return;  // IME 変換中のキーは無視する
+        if (this.list.hidden && event.key === 'ArrowDown' && this.results.length) { this.render(); return; }
+        if (this.list.hidden && event.key !== 'Enter') return;
+        switch (event.key) {
+          case 'ArrowDown': event.preventDefault(); this.highlight(Math.min(this.active + 1, this.results.length - 1)); break;
+          case 'ArrowUp': event.preventDefault(); this.highlight(Math.max(this.active - 1, 0)); break;
+          case 'Enter': event.preventDefault(); this.choose(this.active >= 0 ? this.active : 0); break;
+          case 'Escape': this.hide(); break;
+        }
+      }
+
+      choose(index) {
+        const result = this.results[index];
+        if (!result) return;
+        this.setValue(result.title);
+        this.input.blur();
+        this.onSelect(result);
+      }
+
+      hide() { this.list.hidden = true; }
+    }
+
+    // =====================================================================
+    // 表示: 言語選択ダイアログ
+    // =====================================================================
+
+    class LanguageDialog {
+      constructor({ onSelect, onOpen }) {
+        this.onSelect = onSelect;
+        this.onOpen = onOpen;
+        this.dialog = el('langDialog');
+        this.filter = el('langFilter');
+        this.list = el('langList');
+        this.button = el('langButton');
+        this.sites = [];
+        this.current = null;
+
+        this.button.addEventListener('click', () => this.open());
+        el('langClose').addEventListener('click', () => this.dialog.close());
+        this.filter.addEventListener('input', () => this.render());
+        this.dialog.addEventListener('click', (event) => { if (event.target === this.dialog) this.dialog.close(); });
+      }
+
+      setSites(sites) { this.sites = sites; this.render(); }
+      setCurrent(site) { this.current = site; this.button.textContent = site.code.toUpperCase(); this.button.title = `言語: ${site.autonym}`; }
+
+      open() {
+        this.filter.value = '';
+        this.render();
+        this.dialog.showModal();
+        this.filter.focus();
+        this.onOpen();
+      }
+
+      render() {
+        const term = this.filter.value.trim().toLowerCase();
+        const matches = this.sites.filter((site) => !term || [site.code, site.autonym, site.localname].some((s) => s?.toLowerCase().includes(term)));
+        this.list.innerHTML = '';
+        if (matches.length === 0) {
+          const item = document.createElement('li');
+          item.className = 'empty';
+          item.textContent = '該当する言語がありません';
+          this.list.appendChild(item);
+          return;
+        }
+        for (const site of matches) {
+          const item = document.createElement('li');
+          item.classList.toggle('current', site.code === this.current?.code);
+          item.innerHTML = `<span class="code"></span><span class="name"></span><span class="local"></span>`;
+          item.querySelector('.code').textContent = site.code;
+          item.querySelector('.name').textContent = site.autonym;
+          item.querySelector('.local').textContent = site.localname ?? '';
+          item.addEventListener('click', () => { this.dialog.close(); this.onSelect(site); });
+          this.list.appendChild(item);
+        }
+      }
+    }
+
+    // =====================================================================
+    // 表示: 記事詳細パネル・履歴ボタン・通知
+    // =====================================================================
+
+    class DetailPanel {
+      constructor({ onPickMember }) {
+        this.onPickMember = onPickMember;
+        this.panel = el('detail');
+        this.title = el('detailTitle');
+        this.meta = el('detailMeta');
+        this.body = el('detailBody');
+        this.foot = el('detailFoot');
+        this.source = el('attrSource');
+      }
+
+      clear() {
+        this.panel.hidden = true;
+        this.source.textContent = 'Wikipedia';
+        this.source.href = 'https://www.wikipedia.org/';
+      }
+
+      showArticle(page, { loading = false } = {}) {
+        this.panel.hidden = false;
+        this.title.innerHTML = '';
+        const link = document.createElement('a');
+        link.href = page.url ?? '#';
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = page.title;
+        this.title.appendChild(link);
+        this.meta.textContent = page.categories.slice(0, 6).join(' · ');
+        this.body.innerHTML = page.extract ? sanitizeHtml(page.extract)
+          : loading ? '<p>読み込み中…</p>' : '<p>（この記事には導入部の抜粋がありません）</p>';
+        this.body.scrollTop = 0;
+        if (loading) this.setProgress('記事を取得しています…', { busy: true });
+
+        // 権利表示: 表示中の記事へのリンクを常時掲示する
+        this.source.textContent = `Wikipedia「${page.title}」`;
+        this.source.href = page.url ?? 'https://www.wikipedia.org/';
+      }
+
+      showCluster(node) {
+        this.panel.hidden = false;
+        this.title.textContent = node.name;
+        this.meta.textContent = node.kind === 'cluster' ? `カテゴリ「${node.category}」を共有する関連記事` : 'どの星団にも属さない関連記事';
+        const list = document.createElement('ul');
+        list.className = 'members';
+        for (const page of node.members) {
+          const item = document.createElement('li');
+          item.textContent = page.title;
+          item.addEventListener('click', () => this.onPickMember(page));
+          list.appendChild(item);
+        }
+        this.body.innerHTML = '';
+        this.body.appendChild(list);
+        this.body.scrollTop = 0;
+      }
+
+      setProgress(text, { busy = false } = {}) {
+        this.foot.innerHTML = busy ? '<span class="spinner"></span>' : '';
+        this.foot.appendChild(document.createTextNode(text));
+      }
+    }
+
+    // 選択履歴のスタック。Prev で戻り、Next で戻る前の記事へ進む
+    class HistoryNav {
+      constructor({ onMove }) {
+        this.entries = [];
+        this.index = -1;
+        this.prev = el('prevButton');
+        this.next = el('nextButton');
+        this.prev.addEventListener('click', () => this.move(-1, onMove));
+        this.next.addEventListener('click', () => this.move(+1, onMove));
+      }
+
+      push(id) {
+        if (this.entries[this.index] === id) return;
+        this.entries = this.entries.slice(0, this.index + 1);
+        this.entries.push(id);
+        this.index = this.entries.length - 1;
+        this.update();
+      }
+
+      reset() { this.entries = []; this.index = -1; this.update(); }
+
+      move(delta, onMove) {
+        const target = this.index + delta;
+        if (target < 0 || target >= this.entries.length) return;
+        this.index = target;
+        this.update();
+        onMove(this.entries[target]);
+      }
+
+      update() {
+        this.prev.disabled = this.index <= 0;
+        this.next.disabled = this.index >= this.entries.length - 1;
+      }
+    }
+
+    class StatusBar {
+      constructor() { this.box = el('status'); this.timer = null; }
+      notice(text, { error = false, ms = 4000 } = {}) {
+        this.box.textContent = text;
+        this.box.classList.toggle('error', error);
+        this.box.hidden = false;
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => { this.box.hidden = true; }, ms);
+      }
+    }
+
+    // =====================================================================
+    // 統括: アプリ本体
+    // =====================================================================
+
+    class Wikiwalker {
+      constructor() {
+        this.status = new StatusBar();
+        this.api = new WikiApi(new RequestQueue(CONFIG.request), (text) => this.status.notice(text));
+        this.graph = new GraphView(el('graph'), { onNodeClick: (node) => this.onNodeClick(node) });
+        this.search = new SearchBox(this.api, { onSelect: (result) => this.startFrom(result) });
+        this.language = new LanguageDialog({ onSelect: (site) => this.changeLanguage(site), onOpen: () => this.loadAllSites() });
+        this.detail = new DetailPanel({ onPickMember: (page) => this.selectArticle(page) });
+        this.history = new HistoryNav({ onMove: (id) => this.selectArticle(this.graph.get(id).page, { fromHistory: true }) });
+        this.current = null;         // 選択中の記事ノード
+        this.controller = null;      // バックグラウンド収集の中断用
+        this.runId = 0;              // 収集 run の識別子。古い run の結果は捨てる
+      }
+
+      start() {
+        this.language.setSites(CONFIG.seedSites);
+        this.applySite(Wikiwalker.preferredSite(CONFIG.seedSites));
+      }
+
+      // Site matrix は初回のダイアログ表示時に 1 度だけ読み込む (起動時の通信を避ける)
+      async loadAllSites() {
+        if (this.sitesLoaded) return;
+        this.sitesLoaded = true;
+        try {
+          this.language.setSites(await this.api.loadSites());
+        } catch (error) {
+          this.sitesLoaded = false;
+          this.status.notice(`言語一覧の取得に失敗しました: ${error.message}`, { error: true });
+        }
+      }
+
+      // ブラウザの優先言語 (ja-JP → ja) に一致する言語版を選ぶ。なければ日本語版
+      static preferredSite(sites) {
+        const wanted = (navigator.languages ?? [navigator.language ?? 'ja']).map((tag) => tag.toLowerCase().split('-')[0]);
+        return wanted.map((code) => sites.find((site) => site.code === code)).find(Boolean) ?? sites.find((site) => site.code === 'ja');
+      }
+
+      applySite(site) {
+        this.api.setSite(site);
+        this.language.setCurrent(site);
+        document.documentElement.lang = site.code;
+        this.clearUniverse();
+      }
+
+      clearUniverse() {
+        this.abortBackground();
+        this.graph.reset();
+        this.history.reset();
+        this.current = null;
+        this.detail.clear();
+      }
+
+      abortBackground() {
+        this.controller?.abort();
+        this.controller = null;
+        this.runId++;
+      }
+
+      // ---- 場面遷移 -----------------------------------------------------
+
+      // 言語切替: 選択中の記事があれば、同じ記事の他言語版へ移動を試みる
+      async changeLanguage(site) {
+        if (site.code === this.api.site.code) return;
+        const current = this.current?.page;
+        let title = null;
+        if (current) {
+          try { title = await this.api.langlinkTitle(current.pageid, site.code); } catch { /* 見つからなければ初期画面へ */ }
+        }
+        this.applySite(site);
+        this.search.setValue('');
+        if (title) this.startFrom({ title });
+        else if (current) this.status.notice(`${site.autonym} 版に「${current.title}」はありません`);
+      }
+
+      // 検索結果を選んだとき: 宇宙を初期化して、その記事を中心に据える (場面 #2 → #3)
+      startFrom(ref) {
+        this.clearUniverse();
+        this.selectArticle(ref);
+      }
+
+      onNodeClick(node) {
+        if (node.kind === 'article') this.selectArticle(node.page);
+        else this.openCluster(node);
+      }
+
+      // 記事を選択する: ノードを中央に据え、詳細を表示し、関連記事の収集を始める (場面 #3 → #4)
+      async selectArticle(ref, { fromHistory = false } = {}) {
+        this.abortBackground();
+        const runId = this.runId;
+        this.controller = new AbortController();
+        const { signal } = this.controller;
+
+        // pageid が分かっていれば応答を待たずにノードを置き、画面を先に切り替える
+        let node = ref.pageid ? this.placeArticle({ categories: [], ...ref }, fromHistory) : null;
+
+        let page;
+        try {
+          page = await this.api.page(ref, signal);
+        } catch (error) {
+          if (!isAbort(error)) this.status.notice(error.message, { error: true });
+          return;
+        }
+        if (runId !== this.runId) return;
+
+        node ??= this.placeArticle(page, fromHistory);
+        node.page = page;  // 抜粋付きの詳細で上書きする
+        this.detail.showArticle(page);
+        this.collectRelated(node, runId, signal).catch((error) => {
+          if (node.run === runId) node.expanded = false;  // 中断・失敗した収集は次に選択したとき再開する
+          if (!isAbort(error) && runId === this.runId) {
+            this.status.notice(`関連記事の取得に失敗しました: ${error.message}`, { error: true });
+            this.detail.setProgress('関連記事の取得に失敗しました');
+          }
+        });
+      }
+
+      // 記事ノードをグラフに置き (あれば再利用)、選択状態・カメラ・パネル・履歴を更新する
+      placeArticle(page, fromHistory) {
+        const parent = this.current;
+        const node = this.graph.get(`a:${page.pageid}`)
+          ?? this.graph.addNow(Wikiwalker.articleNode(page, parent ? parent.depth + 1 : 0), parent);
+        this.current = node;
+        this.graph.select(node);
+        this.graph.focus(node);
+        this.detail.showArticle(node.page, { loading: !node.page.extract });
+        this.search.setValue(node.page.title);
+        if (!fromHistory) this.history.push(node.id);
+        return node;
+      }
+
+      static articleNode(page, depth) {
+        return { id: `a:${page.pageid}`, kind: 'article', name: page.title, page, depth, expanded: false };
+      }
+
+      // ---- 関連記事の収集 (バックグラウンド) ------------------------------
+
+      async collectRelated(node, runId, signal) {
+        if (node.expanded) { this.detail.setProgress(node.summary ?? ''); return; }
+        node.expanded = true;
+        node.run = runId;
+        this.graph.refreshStyles();
+        this.detail.setProgress('関連記事を収集しています…', { busy: true });
+
+        const aggregator = new RelatedAggregator(CONFIG.related);
+        aggregator.exclude(node.page.pageid);
+        const depth = node.depth + 1;
+        let direct = 0;
+
+        // 1. 導入部のリンク: 本文で最初に言及される記事ほど本題に近いとみなし、直接ノードにする
+        const leadTitles = (await this.api.leadLinkTitles(node.page.pageid, signal)).slice(0, CONFIG.related.directMax * 2);
+        const leadPages = await this.api.resolveTitles(leadTitles, signal);
+        if (runId !== this.runId) return;
+        for (const page of leadPages) {
+          if (page.disambiguation || page.pageid === node.page.pageid || direct >= CONFIG.related.directMax) continue;
+          aggregator.exclude(page.pageid);
+          this.graph.add(Wikiwalker.articleNode(page, depth), node);
+          direct++;
+        }
+        this.detail.setProgress(`直接の関連記事 ${direct} 件。出リンクを集約しています…`, { busy: true });
+
+        // 2. 全出リンク: バッチごとにカテゴリで集約し、星団ノードとして逐次反映する
+        let total = 0;
+        for await (const pages of this.api.linkedPages(node.page.pageid, signal)) {
+          if (runId !== this.runId) return;
+          total += pages.length;
+          for (const cluster of aggregator.addCandidates(pages)) this.syncCluster(node, cluster, depth);
+          this.syncPool(node, aggregator, depth);
+          this.detail.setProgress(`出リンク ${total} 件を確認。星団 ${aggregator.clusters.size} 個`, { busy: true });
+        }
+        if (runId !== this.runId) return;
+
+        const truncated = total >= CONFIG.related.linkBatch * CONFIG.related.maxLinkRequests ? '（先頭のみ）' : '';
+        node.summary = `直接 ${direct} 件 / 星団 ${aggregator.clusters.size} 個 / その他 ${aggregator.pool.length} 件 ・ 出リンク ${total} 件${truncated}`;
+        this.detail.setProgress(node.summary);
+      }
+
+      syncCluster(parent, cluster, depth) {
+        const id = `c:${parent.page.pageid}:${cluster.category}`;
+        const name = `${cluster.category} (${cluster.members.length})`;
+        const known = this.graph.get(id);
+        if (known) this.graph.rename(known, name);
+        else this.graph.add({ id, kind: 'cluster', name, category: cluster.category, members: cluster.members, depth, expanded: false }, parent);
+      }
+
+      syncPool(parent, aggregator, depth) {
+        if (aggregator.pool.length === 0) return;
+        const id = `p:${parent.page.pageid}`;
+        const name = `その他 (${aggregator.pool.length})`;
+        const known = this.graph.get(id);
+        if (known) { known.members = aggregator.pool; this.graph.rename(known, name); }
+        else this.graph.add({ id, kind: 'pool', name, members: aggregator.pool, depth, expanded: false }, parent);
+      }
+
+      // 星団をクリック: メンバー一覧を詳細パネルに出し、一部をグラフに展開する
+      openCluster(node) {
+        this.detail.showCluster(node);
+        this.detail.setProgress(`${node.members.length} 件の記事。クリックで選択できます`);
+        if (node.expanded) return;
+        node.expanded = true;
+        for (const page of node.members.slice(0, CONFIG.related.expandLimit)) {
+          this.graph.add(Wikiwalker.articleNode(page, node.depth + 1), node);
+        }
+      }
+    }
+
+    window.wikiwalker = new Wikiwalker();  // デバッグ用に公開しておく
+    window.wikiwalker.start();
+  </script>
+</body>
+</html>
