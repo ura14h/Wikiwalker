@@ -398,6 +398,10 @@
         framePadding: 8,      // ノードの半径とラベル分の余白 (空間単位)
         hitRadius: 8.5,       // 見た目を変えずにクリックしやすくする最小当たり半径
         clickTolerance: 6,    // この移動量 (px) までは手ぶれとしてクリックを許容する
+        relatedBrightness: .42, // 選択ノードに直結するノードを霧の中から少し浮かせる
+        hoverLabelScale: 1.32,  // ホバー時に保証する見かけサイズの通常ラベル比
+        hoverLabelMaxScale: 3, // 遠方ラベルの拡大上限
+        hoverDuration: 100,    // ホバーラベルの拡縮が完了するまでの時間 (ms)
         palette: ['#eaffdf', '#8edfc5', '#a7c7ff', '#dab5ff', '#f2d18e', '#91d6ef'],  // 深さごとの記事星の色
         clusterColor: '#f3c887',
         poolColor: '#8b95a3',
@@ -778,6 +782,10 @@
         this.links = [];
         this.byId = new Map();
         this.selected = null;
+        this.hovered = null;
+        this.relatedIds = new Set();
+        this.animatingLabels = new Set();
+        this.hoverFrame = null;
         this.queue = [];       // 出現待ちのノード
         this.dripTimer = null;
         this.frameTimer = null;
@@ -791,6 +799,7 @@
           .backgroundColor('#05070b')
           .showNavInfo(false)
           .enableNodeDrag(false)
+          .nodeLabel(() => '')  // 標準ツールチップではなく、ノード上のラベルを強調する
           .nodeThreeObject((node) => this.createNodeObject(node))
           // 辺の由来: similar (morelike の類似) / cluster (出リンクの集約) / member (星団の展開)
           .linkColor((link) => (link.kind === 'cluster' ? 'rgba(243,200,135,.45)' : 'rgba(166,218,202,.5)'))
@@ -800,10 +809,12 @@
           .cooldownTime(9000)
           .onEngineTick(() => this.updateFog())
           .onEngineStop(() => { if (this.autoFrameActive) this.frameSelection({ allowZoomIn: true }); })
-          .onNodeHover((node) => { container.style.cursor = node ? 'pointer' : 'grab'; });
+          .onNodeHover((node) => this.setHovered(node, container));
 
         // TrackballControls 標準の D＋ドラッグを、既存ガイドどおり Shift＋左ドラッグの平行移動へ置き換える。
-        this.graph.controls().keys[2] = 'ShiftLeft';
+        const controls = this.graph.controls();
+        controls.keys[2] = 'ShiftLeft';
+        controls.addEventListener('change', () => this.updateSelectedLabelScale());
 
         this.graph.d3Force('charge').strength((node) => (node.kind === 'article' ? -125 : -90));
         this.graph.d3Force('link').distance((link) => (link.kind === 'similar' ? 95 : 75));
@@ -862,10 +873,25 @@
         return this.cfg.palette[1 + (node.depth % (this.cfg.palette.length - 1))];
       }
 
+      visualState(node) {
+        if (node === this.selected) return 'selected';
+        if (node === this.hovered) return 'hovered';
+        if (this.relatedIds.has(node.id)) return 'related';
+        return 'normal';
+      }
+
+      nodeOpacity(node) {
+        const state = this.visualState(node);
+        if (state === 'selected' || state === 'hovered') return 1;
+        const fog = this.fogOpacity(node);
+        return state === 'related' ? THREE.MathUtils.lerp(fog, 1, this.cfg.relatedBrightness) : fog;
+      }
+
       createNodeObject(node) {
         const selected = node === this.selected;
+        const state = this.visualState(node);
         const color = this.nodeColor(node);
-        const opacity = selected ? 1 : this.fogOpacity(node);
+        const opacity = this.nodeOpacity(node);
         const radius = selected ? 8.2 : node.kind === 'article' ? (node.expanded ? 6.2 : 4.6) : 4.4;
         const group = new THREE.Group();
         const materials = [];
@@ -879,7 +905,7 @@
 
         const body = new THREE.Mesh(
           new THREE.SphereGeometry(radius, 20, 12),
-          new THREE.MeshLambertMaterial({ color, transparent: true, opacity, emissive: color, emissiveIntensity: selected ? .33 : .08 }),
+          new THREE.MeshLambertMaterial({ color, transparent: true, opacity, emissive: color, emissiveIntensity: this.emissiveIntensity(state) }),
         );
         group.add(body);
         materials.push(body.material);
@@ -898,7 +924,7 @@
 
         const label = new SpriteText(node.name, selected ? 4.9 : 3.7, color);
         label.fontFace = 'sans-serif';
-        label.backgroundColor = selected ? 'rgba(5,7,11,.78)' : 'rgba(5,7,11,.4)';
+        label.backgroundColor = this.labelBackground(state);
         label.padding = selected ? 1.7 : .8;
         label.borderRadius = 3;
         label.position.y = radius + (selected ? 7 : node.kind === 'article' ? 4.6 : 6.5);
@@ -907,8 +933,27 @@
         materials.push(label.material);
 
         node.__sprite = label;
-        node.__fogMaterials = selected ? [] : materials;
+        node.__labelBaseScale = label.scale.clone();
+        node.__labelScale = 1;
+        node.__bodyMaterial = body.material;
+        node.__visualMaterials = materials;
+        if (selected) this.setLabelScale(node, this.selectedLabelScale(node));
+        else if (node === this.hovered) this.setLabelScale(node, this.hoverLabelScale(node));
         return group;
+      }
+
+      emissiveIntensity(state) {
+        if (state === 'selected') return .33;
+        if (state === 'hovered') return .28;
+        if (state === 'related') return .16;
+        return .08;
+      }
+
+      labelBackground(state) {
+        if (state === 'selected') return 'rgba(5,7,11,.78)';
+        if (state === 'hovered') return 'rgba(5,7,11,.86)';
+        if (state === 'related') return 'rgba(5,7,11,.58)';
+        return 'rgba(5,7,11,.4)';
       }
 
       // 選択ノードからの距離を不透明度に変換する (遠い星ほど霞む)
@@ -921,9 +966,102 @@
 
       updateFog() {
         for (const node of this.nodes) {
-          if (!node.__fogMaterials) continue;
-          const opacity = this.fogOpacity(node);
-          for (const material of node.__fogMaterials) material.opacity = opacity;
+          if (!node.__visualMaterials) continue;
+          const opacity = this.nodeOpacity(node);
+          for (const material of node.__visualMaterials) material.opacity = opacity;
+        }
+      }
+
+      updateNodeVisual(node) {
+        if (!node?.__sprite) return;
+        const state = this.visualState(node);
+        const opacity = this.nodeOpacity(node);
+        for (const material of node.__visualMaterials ?? []) material.opacity = opacity;
+        if (node.__bodyMaterial) node.__bodyMaterial.emissiveIntensity = this.emissiveIntensity(state);
+        const scale = node.__labelScale ?? 1;
+        node.__sprite.backgroundColor = this.labelBackground(state);
+        node.__labelBaseScale = node.__sprite.scale.clone();
+        this.setLabelScale(node, scale);
+      }
+
+      setHovered(node, container) {
+        if (node === this.hovered) return;
+        const previous = this.hovered;
+        this.hovered = node ?? null;
+        container.style.cursor = node ? 'pointer' : 'grab';
+        this.updateNodeVisual(previous);
+        this.updateNodeVisual(this.hovered);
+        if (previous && previous !== this.selected) this.queueLabelAnimation(previous, 1);
+        if (this.hovered && this.hovered !== this.selected) this.queueLabelAnimation(this.hovered, this.hoverLabelScale(this.hovered));
+        this.animateHoverLabels();
+      }
+
+      hoverLabelScale(node) {
+        if (!node) return 1;
+        const depth = this.labelCameraDepth(node);
+        return THREE.MathUtils.clamp(this.cfg.hoverLabelScale * depth / this.cfg.focusDistance, 1, this.cfg.hoverLabelMaxScale);
+      }
+
+      selectedLabelScale(node) {
+        if (!node) return 1;
+        return Math.max(1, this.labelCameraDepth(node) / this.cfg.focusDistance);
+      }
+
+      labelCameraDepth(node) {
+        const camera = this.graph.camera();
+        const offset = new THREE.Vector3(node.x ?? 0, node.y ?? 0, node.z ?? 0).sub(camera.position);
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        return Math.max(0, offset.dot(forward));
+      }
+
+      updateSelectedLabelScale() {
+        if (!this.selected?.__sprite) return;
+        this.setLabelScale(this.selected, this.selectedLabelScale(this.selected));
+      }
+
+      setLabelScale(node, scale) {
+        if (!node?.__sprite || !node.__labelBaseScale) return;
+        node.__labelScale = scale;
+        node.__sprite.scale.copy(node.__labelBaseScale).multiplyScalar(scale);
+      }
+
+      queueLabelAnimation(node, target) {
+        if (!node?.__sprite) return;
+        node.__labelAnimation = {
+          from: node.__labelScale ?? 1,
+          to: target,
+          startedAt: performance.now(),
+        };
+        this.animatingLabels.add(node);
+      }
+
+      animateHoverLabels() {
+        if (this.hoverFrame) return;
+        const tick = (now) => {
+          for (const node of this.animatingLabels) {
+            const animation = node.__labelAnimation;
+            if (!node.__sprite || !animation) { this.animatingLabels.delete(node); continue; }
+            const progress = this.reducedMotion.matches ? 1 : THREE.MathUtils.clamp((now - animation.startedAt) / this.cfg.hoverDuration, 0, 1);
+            const eased = progress * progress * (3 - 2 * progress);
+            this.setLabelScale(node, THREE.MathUtils.lerp(animation.from, animation.to, eased));
+            if (progress >= 1) {
+              delete node.__labelAnimation;
+              this.animatingLabels.delete(node);
+            }
+          }
+          if (this.animatingLabels.size) this.hoverFrame = requestAnimationFrame(tick);
+          else this.hoverFrame = null;
+        };
+        this.hoverFrame = requestAnimationFrame(tick);
+      }
+
+      rebuildRelatedIds() {
+        this.relatedIds.clear();
+        if (!this.selected) return;
+        for (const link of this.links) {
+          const source = linkEnd(link.source), target = linkEnd(link.target);
+          if (source === this.selected.id) this.relatedIds.add(target);
+          else if (target === this.selected.id) this.relatedIds.add(source);
         }
       }
 
@@ -940,6 +1078,11 @@
         this.links = [];
         this.byId.clear();
         this.selected = null;
+        this.hovered = null;
+        this.relatedIds.clear();
+        this.animatingLabels.clear();
+        if (this.hoverFrame) cancelAnimationFrame(this.hoverFrame);
+        this.hoverFrame = null;
         this.autoFrameActive = false;
         this.graph.graphData({ nodes: [], links: [] });
         this.graph.cameraPosition({ x: 0, y: 0, z: this.cfg.focusDistance }, { x: 0, y: 0, z: 0 }, 0);
@@ -977,6 +1120,8 @@
         Object.assign(node, { x: origin.x, y: origin.y, z: origin.z });
         this.nodes.push(node);
         if (parent) this.links.push({ source: parent.id, target: node.id, kind });
+        if (parent?.id === this.selected?.id) this.relatedIds.add(node.id);
+        else if (node.id === this.selected?.id && parent) this.relatedIds.add(parent.id);
         this.graph.graphData({ nodes: this.nodes, links: this.links });
       }
 
@@ -984,12 +1129,19 @@
         const exists = this.links.some((l) => (linkEnd(l.source) === a.id && linkEnd(l.target) === b.id) || (linkEnd(l.source) === b.id && linkEnd(l.target) === a.id));
         if (exists) return;
         this.links.push({ source: a.id, target: b.id, kind });
+        if (a.id === this.selected?.id) { this.relatedIds.add(b.id); this.updateNodeVisual(b); }
+        else if (b.id === this.selected?.id) { this.relatedIds.add(a.id); this.updateNodeVisual(a); }
         this.graph.graphData({ nodes: this.nodes, links: this.links });
       }
 
       rename(node, name) {
         node.name = name;
-        if (node.__sprite) node.__sprite.text = name;
+        if (node.__sprite) {
+          const scale = node.__labelScale ?? 1;
+          node.__sprite.text = name;
+          node.__labelBaseScale = node.__sprite.scale.clone();
+          this.setLabelScale(node, scale);
+        }
       }
 
       // ---- 選択とカメラ -------------------------------------------------
@@ -998,6 +1150,11 @@
       select(node) {
         if (this.selected) { delete this.selected.fx; delete this.selected.fy; delete this.selected.fz; }
         this.selected = node;
+        if (node) {
+          this.animatingLabels.delete(node);
+          delete node.__labelAnimation;
+        }
+        this.rebuildRelatedIds();
         if (node) Object.assign(node, { fx: node.x, fy: node.y, fz: node.z });
         this.refreshStyles();
       }
