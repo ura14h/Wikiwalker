@@ -786,8 +786,8 @@
         this.raycaster = new THREE.Raycaster();
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-        // OrbitControls: 左ドラッグで回転、右ドラッグまたはShift/Ctrl＋左ドラッグで平行移動、ホイールでズーム
-        this.graph = ForceGraph3D({ controlType: 'orbit', rendererConfig: { antialias: true } })(container)
+        // TrackballControls: 左ドラッグで極点をまたいで回転、右ドラッグまたはShift＋左ドラッグで平行移動、ホイールでズーム
+        this.graph = ForceGraph3D({ controlType: 'trackball', rendererConfig: { antialias: true } })(container)
           .backgroundColor('#05070b')
           .showNavInfo(false)
           .enableNodeDrag(false)
@@ -801,6 +801,9 @@
           .onEngineTick(() => this.updateFog())
           .onEngineStop(() => { if (this.autoFrameActive) this.frameSelection({ allowZoomIn: true }); })
           .onNodeHover((node) => { container.style.cursor = node ? 'pointer' : 'grab'; });
+
+        // TrackballControls 標準の D＋ドラッグを、既存ガイドどおり Shift＋左ドラッグの平行移動へ置き換える。
+        this.graph.controls().keys[2] = 'ShiftLeft';
 
         this.graph.d3Force('charge').strength((node) => (node.kind === 'article' ? -125 : -90));
         this.graph.d3Force('link').distance((link) => (link.kind === 'similar' ? 95 : 75));
