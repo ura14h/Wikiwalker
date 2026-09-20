@@ -40,6 +40,10 @@
 
     /* ---- 宇宙 (グラフ描画領域) ---------------------------------------- */
     #graph { position: absolute; inset: 0; cursor: grab; }
+    /* 初期画面の星間航行。グラフの上・intro の下に重ね、記事を選ぶと散って暗闇に消える */
+    .starfield { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; transition: opacity .9s; }
+    .starfield.visible { opacity: 1; }
+    .starfield.burst { transition: opacity .75s ease-in; }
     #graph:active { cursor: grabbing; }
     #graph canvas { outline: none; }
 
@@ -120,8 +124,9 @@
     .history {
       justify-self: end; pointer-events: auto; display: flex; align-items: center; gap: 6px;
       background: rgba(11,16,22,.7); border: 1px solid var(--line); border-radius: 13px; padding: 5px;
-      backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px); transition: opacity .35s .3s;
     }
+    .app.hero .history { opacity: 0; pointer-events: none; transition-delay: 0s; }
     .history button {
       width: 39px; height: 38px; border: 0; border-radius: 9px; cursor: pointer;
       background: transparent; color: var(--muted); display: grid; place-items: center;
@@ -133,15 +138,38 @@
 
     /* ---- 初期案内・状態表示・凡例・操作案内 --------------------------- */
     .intro {
+      --base-y: -48%;
       position: absolute; z-index: 4; top: 50%; left: 50%; width: min(560px, calc(100% - 40px));
-      transform: translate(-50%, -48%); text-align: center; pointer-events: none; transition: opacity .5s, visibility .5s;
+      transform: translate(-50%, var(--base-y)); text-align: center; pointer-events: none;
+      transition: opacity .5s, visibility 0s, top .55s cubic-bezier(.22, 1, .36, 1), transform .55s cubic-bezier(.22, 1, .36, 1);
     }
-    .intro.hidden { opacity: 0; visibility: hidden; }
+    .intro.hidden { opacity: 0; visibility: hidden; transition: opacity .5s, visibility 0s .5s; }  /* 消えるときだけ visibility を遅らせ、出るときは即座に操作できる */
+    /* 入力が始まったら intro ごと持ち上げて検索欄を上端の定位置へ寄せ、候補リストの場所を空ける。
+       検索欄の DOM は動かさないので IME の変換中でも安全。--lift-top は JS が測って入れる */
+    .intro.lifted { top: var(--lift-top); transform: translate(-50%, 0); }
+    .intro.lifted > :not(.intro-search) { opacity: 0; transform: translateY(-16px); }
+    .app.hero .intro { z-index: 11; }  /* 持ち上げた検索欄が topbar の暗いグラデーションの下に入らないように */
+    .app.hero :is(.brand, .attribution, .controls-hint) { opacity: 0; pointer-events: none; }
+    .brand, .attribution, .controls-hint { transition: opacity .35s .3s; }
     .intro-kicker { color: var(--accent-2); font-size: 12px; text-transform: uppercase; letter-spacing: .24em; }
     .intro h1 { margin: 18px 0 14px; font: 400 clamp(38px, 6vw, 72px)/.95 var(--serif); letter-spacing: -.035em; }
     .intro h1 em { color: var(--accent); font-style: normal; }
+    .intro h1 .punct { margin-right: -.5em; }  /* 全角句読点の右側の空きを詰めて、行の見た目の中心を合わせる */
     .intro p { max-width: 470px; margin: 0 auto; color: var(--muted); font: 16px/1.85 var(--serif); }
-    .intro-line { width: 1px; height: 54px; margin: 28px auto 0; background: linear-gradient(var(--accent-2), transparent); opacity: .55; }
+    /* 最初の一手: 検索欄は初期画面ではタイトルの直下に置き (hero)、最初の記事を選んだら上端の定位置へ飛ばす */
+    .intro-search { margin: 34px auto 0; pointer-events: auto; text-align: left; }
+    .intro:not(.hidden) > * { animation: rise .7s cubic-bezier(.2, .7, .2, 1) backwards; }
+    .intro:not(.hidden) > :nth-child(2) { animation-delay: .08s; }
+    .intro:not(.hidden) > :nth-child(3) { animation-delay: .16s; }
+    .intro:not(.hidden) > :nth-child(4) { animation-delay: .28s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(18px); } }
+    .intro > * { transition: transform .5s cubic-bezier(.2, .7, .2, 1), opacity .35s; }
+    .intro.hidden > * { transform: translateY(-22px); }  /* 飛び立つ検索欄と同じ向きに流して消える */
+    .app.hero .search-row { border-color: rgba(201,255,182,.4); animation: invite 2.6s ease-in-out infinite; }
+    @keyframes invite {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(201,255,182,0), 0 12px 50px rgba(0,0,0,.35), inset 0 1px rgba(255,255,255,.025); }
+      50% { box-shadow: 0 0 0 7px rgba(201,255,182,.08), 0 0 44px rgba(127,227,205,.14), 0 12px 50px rgba(0,0,0,.35), inset 0 1px rgba(255,255,255,.025); }
+    }
 
     .status {
       position: absolute; z-index: 6; left: 50%; top: 88px; transform: translateX(-50%);
@@ -280,7 +308,7 @@
       .language-button { padding: 0 9px; }
       .language-button svg { display: none; }
       .search-icon { margin-left: 10px; }
-      .intro { transform: translate(-50%, -43%); }
+      .intro { --base-y: -43%; }
       .intro p { font-size: 14px; padding: 0 20px; }
       .legend { top: 76px; }
       .detail h2 { font-size: 22px; }
@@ -296,6 +324,7 @@
 <body>
   <main class="app">
     <div id="graph" aria-label="Wikipedia記事の3D関係グラフ"></div>
+    <canvas class="starfield" id="starfield" aria-hidden="true"></canvas>
 
     <header class="topbar">
       <div class="brand" aria-label="Wikiwalker">
@@ -325,9 +354,9 @@
 
     <section class="intro" id="intro">
       <div class="intro-kicker">An open encyclopedia, reimagined</div>
-      <h1>知識の宇宙を、<br><em>歩く。</em></h1>
+      <h1>知識の宇宙を<span class="punct">、</span><br><em>歩く<span class="punct">。</span></em></h1>
       <p>ひとつの記事から、思いがけない隣の世界へ。<br>Wikipediaのつながりを星図のように辿ります。</p>
-      <div class="intro-line"></div>
+      <div class="intro-search" id="introSearch"></div>
     </section>
 
     <div class="status" id="status" role="status" aria-live="polite"><span class="status-dot"></span><span id="statusText"></span></div>
@@ -406,6 +435,18 @@
         expandLimit: 16,     // 星団を開いたときにグラフへ出す記事数
         // 集約に向かないカテゴリ (汎用すぎるもの・非表示指定のない保守用カテゴリ)
         ignoredCategories: [/^存命人物$/, /^Living people$/, /ページ$/, /出典|参照|識別子|曖昧さ|ウィキペディア|CS1|Webarchive/i, /^(Pages|Articles) /],
+      },
+
+      // 初期画面の星間航行
+      starfield: {
+        count: 420,       // 星の数
+        cruise: .28,      // 巡航速度 (奥行き 1 を進むのにかかる秒数の逆数)
+        warpBoost: 16,    // ワープ (記事を選んでから本文が届くまで) の加速倍率
+        warpRamp: 400,    // 巡航からワープ速度に達するまで (ms)
+        minWarp: 700,     // 本文がすぐ届いても、ワープはこれだけ見せる (ms)
+        fadeDuration: 800,   // 暗闇へ溶けて止まるまで (ms)
+        arrivalDelay: 140,   // 溶け始めてから記事星が現れ始めるまで (ms)
+        arrivalDuration: 520,  // 記事星が拡大しながら現れる時間 (ms)
       },
 
       // グラフの見た目と動き
@@ -833,6 +874,107 @@
     }
 
     // =====================================================================
+    // 表示: 初期画面の星間航行
+    // =====================================================================
+
+    // 中心から星が流れてくる古典的なスターフィールド。初期画面の間だけ描き、記事を選ぶと加速して散る
+    class Starfield {
+      constructor(canvas, cfg) {
+        this.canvas = canvas;
+        this.cfg = cfg;
+        this.ctx = canvas.getContext('2d');
+        this.stars = [];
+        this.frame = null;
+        this.last = 0;
+        this.warpAt = null;  // ワープ開始時刻。null なら巡航
+        this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        window.addEventListener('resize', () => { if (this.frame) this.resize(); });
+      }
+
+      resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        this.width = this.canvas.clientWidth;
+        this.height = this.canvas.clientHeight;
+        this.canvas.width = Math.round(this.width * dpr);
+        this.canvas.height = Math.round(this.height * dpr);
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      spawn(star, z = 1) {
+        star.x = (Math.random() * 2 - 1) * 1.2;
+        star.y = (Math.random() * 2 - 1) * 1.2;
+        star.z = z;
+        star.tint = Math.random();
+        return star;
+      }
+
+      start() {
+        if (this.reducedMotion.matches) return;
+        clearTimeout(this.stopTimer);
+        this.warpAt = null;
+        this.canvas.classList.remove('burst');
+        this.canvas.classList.add('visible');
+        if (this.frame) return;  // ワープ中に初期画面へ戻ったときは巡航に戻すだけ
+        this.resize();
+        this.stars = Array.from({ length: this.cfg.count }, () => this.spawn({}, Math.random()));
+        this.last = performance.now();
+        this.frame = requestAnimationFrame((now) => this.tick(now));
+      }
+
+      // ワープ: 加速して尾が伸びたまま散り続ける (記事本文が届くまでの待ち時間を隠す)
+      warp() {
+        if (this.frame && !this.warpAt) this.warpAt = performance.now();
+      }
+
+      // 暗闇へ溶けて止まる
+      fade() {
+        if (!this.frame) return;
+        this.canvas.classList.add('burst');
+        this.canvas.classList.remove('visible');
+        clearTimeout(this.stopTimer);
+        this.stopTimer = setTimeout(() => this.stop(), this.cfg.fadeDuration);
+      }
+
+      stop() {
+        cancelAnimationFrame(this.frame);
+        this.frame = null;
+        this.warpAt = null;
+        this.canvas.classList.remove('visible', 'burst');
+        this.ctx.clearRect(0, 0, this.width, this.height);
+      }
+
+      tick(now) {
+        const dt = Math.min((now - this.last) / 1000, .05);
+        this.last = now;
+        const ramp = this.warpAt ? Math.min((now - this.warpAt) / this.cfg.warpRamp, 1) : 0;
+        const speed = this.cfg.cruise * (1 + this.cfg.warpBoost * ramp * ramp);
+        const { ctx, width, height } = this;
+        const cx = width / 2, cy = height / 2;
+        const focal = Math.min(width, height) * .5;
+        ctx.clearRect(0, 0, width, height);
+        ctx.lineCap = 'round';
+        for (const star of this.stars) {
+          const pz = star.z;
+          star.z -= speed * dt;
+          if (star.z <= .02) { this.spawn(star); continue; }
+          const sx = cx + star.x / star.z * focal, sy = cy + star.y / star.z * focal;
+          if (sx < -20 || sx > width + 20 || sy < -20 || sy > height + 20) { this.spawn(star); continue; }
+          const px = cx + star.x / pz * focal, py = cy + star.y / pz * focal;
+          const near = 1 - star.z;
+          const alpha = .18 + .82 * near * near;  // 遠くは淡く、近づくほど急に明るく
+          // 手前の星ほど白く太く、遠い星は淡いミント色
+          ctx.strokeStyle = star.tint < .35 ? `rgba(127,227,205,${alpha})` : `rgba(234,255,223,${alpha})`;
+          ctx.lineWidth = .6 + near * 1.8;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(sx, sy);
+          ctx.stroke();
+        }
+        this.frame = requestAnimationFrame((next) => this.tick(next));
+      }
+    }
+
+    // =====================================================================
     // 表示: 3D グラフ (Wikipedia 宇宙)
     // =====================================================================
 
@@ -1060,7 +1202,37 @@
         node.__visualMaterials = materials;
         if (emphasized) this.setLabelScale(node, this.selectedLabelScale(node));
         else if (node === this.hovered) this.setLabelScale(node, this.hoverLabelScale(node));
+        if (node.__arrival) this.runArrival(node, group);
         return group;
+      }
+
+      // 初期画面から最初の記事を置くとき: ワープの間は星を隠しておき (hold)、本文が届いたら暗闇から拡大しながら素早く現れる (arrive)
+      hold(node, { duration }) {
+        if (this.reducedMotion.matches) return;
+        node.__arrival = { start: Infinity, duration };
+        if (node.__threeObj) this.runArrival(node, node.__threeObj);
+      }
+
+      arrive(node, { delay, duration }) {
+        if (this.reducedMotion.matches) return;
+        node.__arrival = { start: performance.now() + delay, duration };
+        if (node.__threeObj) this.runArrival(node, node.__threeObj);
+      }
+
+      // 時刻だけで拡大率を決めるので、途中で見た目が作り直されても新しいオブジェクトに同じ進行で適用できる
+      runArrival(node, group) {
+        cancelAnimationFrame(node.__arrivalFrame);
+        const tick = (now) => {
+          const { start, duration } = node.__arrival;
+          const p = Math.min(1, Math.max(0, (now - start) / duration));
+          const back = 1.70158;  // easeOutBack: 少し行き過ぎてから収まる
+          const eased = p === 0 ? 0 : 1 + (back + 1) * Math.pow(p - 1, 3) + back * Math.pow(p - 1, 2);
+          (node.__threeObj ?? group).scale.setScalar(Math.max(.001, eased));
+          if (p < 1) node.__arrivalFrame = requestAnimationFrame(tick);
+          else { delete node.__arrival; node.__arrivalFrame = null; }
+        };
+        group.scale.setScalar(.001);
+        node.__arrivalFrame = requestAnimationFrame(tick);
       }
 
       emissiveIntensity(state) {
@@ -1414,9 +1586,11 @@
     // =====================================================================
 
     class SearchBox {
-      constructor(api, { onSelect }) {
+      constructor(api, { onSelect, onTyping }) {
         this.api = api;
         this.onSelect = onSelect;
+        this.onTyping = onTyping;  // 入力の有無が変わったとき (初期画面で検索欄を持ち上げる合図)
+        this.composing = false;    // IME 変換中。候補ウィンドウは入力欄の移動に追従しないので、確定まで持ち上げを待つ
         this.input = $('#searchInput');
         this.list = $('#searchResults');
         this.clearButton = $('#searchClear');
@@ -1427,6 +1601,8 @@
         this.controller = null;
 
         this.input.addEventListener('input', () => this.schedule());
+        this.input.addEventListener('compositionstart', () => { this.composing = true; });
+        this.input.addEventListener('compositionend', () => { this.composing = false; this.onTyping?.(Boolean(this.input.value.trim())); });
         this.input.addEventListener('keydown', (event) => this.onKey(event));
         // 保存済み候補が現在の入力に対するものであるときだけ再表示する (記事選択で値が置き換わった後は開かない)
         this.input.addEventListener('focus', () => { if (this.results.length && this.term === this.input.value.trim()) this.open(); });
@@ -1452,12 +1628,14 @@
         this.input.value = text;
         this.clearButton.classList.toggle('visible', Boolean(text));
         this.close();
+        this.onTyping?.(Boolean(text));
       }
 
       schedule() {
         this.clearButton.classList.toggle('visible', Boolean(this.input.value));
         clearTimeout(this.timer);
         const term = this.input.value.trim();
+        if (!this.composing) this.onTyping?.(Boolean(term));
         if (!term) { this.results = []; this.close(); return; }
         this.timer = setTimeout(() => this.run(term), CONFIG.search.debounce);
       }
@@ -1711,7 +1889,7 @@
         }
         this.articleStats(node);
         this.body.scrollTop = 0;
-        this.setBusy(loading);
+        if (loading) this.setBusy(true);  // 解除は関連記事の収集側が行う (本文より先に収集が走っていることがある)
 
         // 権利表示: 表示中の記事へのリンクを常時掲示する
         this.credit.textContent = `Wikipedia「${page.title}」`;
@@ -1788,7 +1966,6 @@
         p.textContent = '記事の概要を取得できませんでした。';
         this.content.replaceChildren(p);
         this.articleStats(node, '記事の取得に失敗しました');
-        this.setBusy(false);
       }
 
       // 記事未選択のときの権利表示 (言語版のトップへ)
@@ -1859,13 +2036,96 @@
         this.status = new StatusBar();
         this.api = new WikiApi(new RequestQueue(CONFIG.request), (text) => this.status.notice(text));
         this.graph = new GraphView($('#graph'), { onNodeClick: (node) => this.onNodeClick(node) });
-        this.search = new SearchBox(this.api, { onSelect: (result) => this.startFrom(result) });
+        this.search = new SearchBox(this.api, { onSelect: (result) => this.startFrom(result), onTyping: (active) => this.liftHero(active) });
         this.language = new LanguageDialog({ onSelect: (site) => this.changeLanguage(site), onOpen: () => this.sitesReady });
         this.detail = new DetailPanel({ onPickMember: (page) => this.selectArticle(page) });
         this.history = new HistoryNav({ onMove: (id) => this.revisit(this.graph.get(id)) });
+        this.starfield = new Starfield($('#starfield'), CONFIG.starfield);
         this.current = null;         // 選択中の記事ノード
         this.controller = null;      // バックグラウンド収集の中断用
         this.runId = 0;              // 収集 run の識別子。古い run の結果は捨てる
+        this.app = $('.app');
+        this.searchShell = $('.search-shell');
+        this.topbar = $('.topbar');
+        this.introSlot = $('#introSearch');
+        this.hero = false;           // 初期画面 (検索欄がタイトルの直下にある状態)
+        this.flight = null;          // 検索欄の移動アニメーション
+        this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        this.enterHero({ animate: false });  // 起動時は最初から中央に置く
+      }
+
+      // ---- 初期画面と検索欄の位置 ---------------------------------------
+
+      // 検索欄をタイトルの直下へ。散策中に言語を変えたときなどは、上端から降りてくる
+      enterHero({ animate = true } = {}) {
+        if (this.hero) return;
+        this.hero = true;
+        this.app.classList.add('hero');
+        this.warpStart = null;
+        this.starfield.start();
+        const intro = $('#intro');
+        if (intro.classList.contains('lifted')) {  // 前回の入力で持ち上げたままなら、見えない間に無音で中央へ戻す
+          intro.style.transition = 'none';
+          intro.classList.remove('lifted');
+          void intro.offsetHeight;
+          intro.style.transition = '';
+        }
+        this.dockSearch(this.introSlot, { animate });
+        // タッチ端末ではキーボードを勝手に出さない。intro の visibility 遷移が始まる前はフォーカスできないので 1 フレーム待つ
+        if (window.matchMedia('(hover: hover)').matches) requestAnimationFrame(() => { if (this.hero) $('#searchInput').focus(); });
+      }
+
+      // 入力が始まったら intro ごと持ち上げて、検索欄を上端の定位置 (topbar の内側上端) に合わせる
+      liftHero(active) {
+        if (!this.hero) return;
+        const intro = $('#intro');
+        if (active) {
+          const target = this.topbar.getBoundingClientRect().top + parseFloat(getComputedStyle(this.topbar).paddingTop);
+          intro.style.setProperty('--lift-top', `${target - this.introSlot.offsetTop}px`);
+        }
+        intro.classList.toggle('lifted', active);
+      }
+
+      // 最初の記事を選んだ瞬間に、星間航行がワープに入り、検索欄は上端の定位置へ飛ぶ。
+      // 記事星はまだ隠しておき、本文が届いたら arriveHero で暗闇に溶ける星々の中に現れる
+      leaveHero(node) {
+        if (!this.hero) return;
+        this.hero = false;
+        this.app.classList.remove('hero');
+        this.starfield.warp();
+        this.warpStart = performance.now();
+        if (node) this.graph.hold(node, { duration: CONFIG.starfield.arrivalDuration });
+        this.dockSearch(this.topbar, { before: $('.history') });
+        const row = $('.search-row');
+        if (!this.reducedMotion.matches) {
+          row.animate(
+            [{ boxShadow: '0 0 0 0 rgba(201,255,182,0)' }, { boxShadow: '0 0 0 12px rgba(201,255,182,.16), 0 0 60px rgba(127,227,205,.25)', offset: .3 }, { boxShadow: '0 0 0 0 rgba(201,255,182,0)' }],
+            { duration: 900, easing: 'ease-out' },
+          );
+        }
+      }
+
+      // 本文が届いた (または諦めた) とき: 最低限のワープ時間を確保してから星々を暗闇へ溶かし、記事星を現す
+      arriveHero(node) {
+        if (this.warpStart == null) return;
+        const wait = Math.max(0, this.warpStart + CONFIG.starfield.minWarp - performance.now());
+        this.warpStart = null;
+        setTimeout(() => this.starfield.fade(), wait);
+        this.graph.arrive(node, { delay: wait + CONFIG.starfield.arrivalDelay, duration: CONFIG.starfield.arrivalDuration });
+      }
+
+      // 検索欄の DOM を移し、移動前後の位置と幅をつないで飛ばす (FLIP)。候補リストは子要素なので一緒に動く
+      dockSearch(parent, { before = null, animate = true } = {}) {
+        this.flight?.cancel();
+        const from = this.searchShell.getBoundingClientRect();
+        parent.insertBefore(this.searchShell, before);
+        if (!animate || this.reducedMotion.matches || from.width === 0) return;
+        const to = this.searchShell.getBoundingClientRect();
+        this.flight = this.searchShell.animate(
+          [{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, width: `${from.width}px` },
+            { transform: 'none', width: `${to.width}px` }],
+          { duration: 720, easing: 'cubic-bezier(.22, 1, .36, 1)' },
+        );
       }
 
       // 暫定の言語表で即座に使える状態にし、Site matrix の一覧が届いたら置き換える
@@ -1888,22 +2148,23 @@
         return wanted.map((code) => sites.find((site) => site.code === code)).find(Boolean) ?? sites.find((site) => site.code === 'ja');
       }
 
-      applySite(site) {
+      applySite(site, { hero = true } = {}) {
         this.api.setSite(site);
         this.language.setCurrent(site);
         document.documentElement.lang = site.code;
-        this.clearUniverse();
+        this.clearUniverse({ hero });
       }
 
-      clearUniverse() {
+      // hero: 初期画面に戻すか。続けて記事を置くときは false にして、検索欄が中央へ寄ってから飛ぶ無駄な往復を避ける
+      clearUniverse({ hero = true } = {}) {
         this.abortBackground();
         this.graph.reset();
         this.history.reset();
         this.current = null;
         this.detail.hide();
         this.detail.resetCredit(this.api.site);
-        $('#intro').classList.remove('hidden');
         $('#legend').classList.remove('visible');
+        if (hero) { this.enterHero(); $('#intro').classList.remove('hidden'); }
       }
 
       abortBackground() {
@@ -1925,7 +2186,7 @@
           try { title = await this.api.langlinkTitle(current.pageid, site.code); } catch (error) { failure = error; }
         }
         SiteCache.writeLanguage(site.code);
-        this.applySite(site);
+        this.applySite(site, { hero: !title });
         this.search.clear();
         if (title) { this.startFrom({ title }); return; }
 
@@ -1937,7 +2198,7 @@
 
       // 検索結果を選んだとき: 宇宙を初期化して、その記事を中心に据える (場面 #2 → #3)
       startFrom(ref) {
-        this.clearUniverse();
+        this.clearUniverse({ hero: false });
         this.selectArticle(ref);
       }
 
@@ -1959,25 +2220,33 @@
         this.controller = new AbortController();
         const { signal } = this.controller;
 
-        // pageid が分かっていれば応答を待たずにノードを置き、画面を先に切り替える
+        // pageid が分かっていれば応答を待たずにノードを置いて画面を先に切り替え、関連記事の収集も本文と並行して始める
         let node = ref.pageid ? this.placeArticle({ categories: [], extract: '', ...ref }, fromHistory) : null;
         if (!node) this.status.notice('記事星を観測しています…', { hideAfter: 0 });
 
         let page;
         try {
-          page = await this.api.page(ref, signal);
+          const pending = this.api.page(ref, signal);  // 本文を先にキューへ入れてから収集を始め、パネルの本文が先に届くようにする
+          if (node) this.startCollecting(node, runId, signal);
+          page = await pending;
         } catch (error) {
           if (isAbort(error)) return;
           this.status.notice(error.message, { error: true, hideAfter: 4500 });
-          if (node && runId === this.runId) this.detail.showArticleError(node);
+          if (node && runId === this.runId) { this.detail.showArticleError(node); this.arriveHero(node); }
           return;
         }
         if (runId !== this.runId) return;
         this.status.hide();
 
+        const placed = Boolean(node);
         node ??= this.placeArticle(page, fromHistory);
         node.page = { ...node.page, ...page };  // 抜粋付きの詳細で上書きする
         this.detail.showArticle(node);
+        this.arriveHero(node);
+        if (!placed) this.startCollecting(node, runId, signal);
+      }
+
+      startCollecting(node, runId, signal) {
         this.collectRelated(node, runId, signal).catch((error) => {
           if (node.run === runId) node.expanded = false;  // 中断・失敗した収集は次に選択したとき再開する
           if (!isAbort(error) && runId === this.runId) {
@@ -2001,6 +2270,7 @@
         this.search.setValue(node.page.title);
         if (!fromHistory) this.history.push(node.id);
         $('#intro').classList.add('hidden');
+        this.leaveHero(node);
         $('#legend').classList.add('visible');
         return node;
       }
