@@ -20,6 +20,10 @@
       --danger: #ff9b8f;
       --shadow: 0 24px 70px rgba(0, 0, 0, .42);
       --radius: 18px;
+      /* 動きの曲線は 2 種類に絞る: 入場・退場は速く出て静かに止まる ease-out、形や位置の変化は ease-in-out */
+      --ease-out: cubic-bezier(.22, 1, .36, 1);
+      --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+      --morph: 360ms;  /* シート ⇄ 帯の変形と、それに合わせた注視点の寄せの時間 */
       --serif: Georgia, "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
     }
 
@@ -201,17 +205,80 @@
       color: var(--faint); font-size: 11px; letter-spacing: .035em; white-space: nowrap; pointer-events: none;
     }
 
-    /* ---- 記事詳細パネル ------------------------------------------------ */
+    /* ---- 覗きカード ----------------------------------------------------
+       星の上でカーソルが止まったときだけ、星の左に浮かぶ (シートが右にあるので左で釣り合わせる)。記事名と定義文で「何の記事か」を一息で答える。
+       通信を待たずにローカルの情報で先に描き、定義文は届いたら差し込む。カーソルの邪魔をしないよう pointer-events は持たない */
+    .peek {
+      position: absolute; z-index: 9; left: 0; top: 0; width: min(330px, calc(100% - 28px));
+      padding: 13px 16px 12px; pointer-events: none; visibility: hidden; opacity: 0;
+      color: var(--ink); background: rgba(9,13,19,.94); border: 1px solid rgba(211,228,218,.24); border-radius: 14px;
+      /* 縁を締める 1px の暗い線 + 周囲の関係線を沈める暈 + 浮き上がりの落ち影。背後のネットワークから切り離して見せる */
+      box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 0 26px 10px rgba(5,7,11,.7), 0 24px 60px rgba(0,0,0,.6);
+      backdrop-filter: blur(18px);
+      transform-origin: var(--origin-x, 0) var(--origin-y, 50%);
+      transition: opacity .16s var(--ease-out), visibility 0s .16s, scale .16s var(--ease-out);
+      scale: .96;
+    }
+    .peek.visible { visibility: visible; opacity: 1; scale: 1; transition-delay: 0s; }
+    /* カテゴリ・その他のカードだけ、どの記事の関連記事かを見出しの上に小さく添える */
+    .peek-owner { margin: 0 0 4px; color: var(--faint); font-size: 11.5px; letter-spacing: .03em; }
+    .peek-owner:empty { display: none; }
+    .peek h3 { margin: 0; font: 500 19px/1.25 var(--serif); letter-spacing: -.01em; }
+    .peek-definition { margin: 7px 0 0; color: #d1dad5; font: 13.5px/1.7 var(--serif); }
+    .peek-definition:empty { display: none; }
+    /* 定義文が届くまでの 1 行分のシマー。カードの高さが後で変わらないよう、文の高さと同じにする */
+    .peek-definition.pending { position: relative; min-height: 23px; }
+    .peek-definition.pending::before {
+      content: ""; position: absolute; left: 0; top: 8px; width: 72%; height: 7px; border-radius: 4px;
+      background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.1), rgba(255,255,255,.04)); background-size: 200% 100%;
+      animation: shimmer 1.4s linear infinite;
+    }
+    /* カテゴリ・その他の惑星: まとめた記事名を箇条書きで見せる */
+    .peek-list { margin: 8px 0 0; padding: 0; list-style: none; color: #d1dad5; font: 13.5px/1.7 var(--serif); }
+    .peek-list:empty { display: none; }
+    .peek-list li { display: flex; gap: 8px; }
+    .peek-list li::before { content: "·"; flex: none; color: var(--accent); }
+    .peek-list .peek-more { color: var(--faint); font-family: inherit; font-size: 12px; }
+    .peek-list .peek-more::before { content: ""; }
+    .peek-categories { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+    .peek-categories:empty { display: none; }
+    .peek-categories span { padding: 2px 8px; border: 1px solid rgba(211,228,218,.14); border-radius: 99px; color: var(--faint); font-size: 10.5px; letter-spacing: .02em; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .peek-hint { margin-top: 9px; color: var(--faint); font-size: 10.5px; letter-spacing: .06em; }
+    /* カードが着陸シートへ膨らんでいく残像 */
+    .land-ghost { position: absolute; z-index: 8; pointer-events: none; border: 1px solid rgba(201,255,182,.45); border-radius: 14px; background: rgba(127,227,205,.08); box-shadow: 0 0 40px rgba(127,227,205,.18); }
+
+    /* ---- 記事詳細: 着陸シート ------------------------------------------
+       クリック (=興味の表明) で右側に開く読み物の柱。導入部の全文と節構成を置く。
+       星図を触り始めたら右下の細い帯 (dock) に退き、帯かクリックで再び開く */
     .detail {
-      position: absolute; z-index: 7; right: calc(22px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); width: min(390px, calc(100% - 44px));
-      max-height: min(55vh, 520px); display: none; flex-direction: column;
+      position: absolute; z-index: 7; right: calc(22px + env(safe-area-inset-right)); display: none; flex-direction: column;
       background: var(--panel); border: 1px solid rgba(211,228,218,.17); border-radius: var(--radius);
       box-shadow: var(--shadow); backdrop-filter: blur(22px); overflow: hidden;
     }
-    .detail.open { display: flex; animation: panel-in .35s ease-out both; }
-    .detail.collapsed { width: auto; min-width: 215px; max-height: none; }
+    .detail.open { display: flex; }
+    /* シートの枠は画面の枠に合わせる: 右 22px・下 22px は帯や凡例の余白と同じ、上 104px は凡例の上端と同じ地平線 */
+    .detail.sheet { top: calc(104px + env(safe-area-inset-top)); bottom: calc(22px + env(safe-area-inset-bottom)); width: min(430px, calc(100% - 44px)); }
+    /* 入場アニメーションは非表示から開くときだけ (entering)。開いたままの切り替えは setMode が実寸を補間する */
+    .detail.sheet.entering { animation: sheet-in .38s var(--ease-out) both; }
+    .detail.dock.entering { animation: panel-in .3s var(--ease-out) both; }
+    /* シートが右を覆う間、下端の権利表示と操作案内はシートの左の領域に収める (グラフの注視点も同じ領域の中央に寄せている) */
+    .app:has(.detail.open.sheet) .attribution { max-width: min(560px, calc(100% - 44px - 452px)); }
+    .app:has(.detail.open.sheet) .controls-hint { left: calc((100% - 452px) / 2); }
+    @media (max-width: 1632px) { .app:has(.detail.open.sheet) .controls-hint { display: none; } }  /* 1180px (権利表示と重なる幅) + シート分 */
+    .detail.dock { bottom: calc(22px + env(safe-area-inset-bottom)); width: min(330px, calc(100% - 44px)); }
+    /* 変形中は中身を少し遅らせて現し、箱の伸縮が先に見えるようにする。高さの上限は補間の邪魔になるので外す */
+    .detail.morphing { max-height: none !important; }
+    .detail.morphing .detail-body, .detail.morphing .detail-categories { animation: content-in var(--morph) var(--ease-out) both; }
+    @keyframes content-in { 0%, 45% { opacity: 0; } }
+    @keyframes sheet-in { from { opacity: 0; transform: translateX(18px); } }
     @keyframes panel-in { from { opacity: 0; transform: translateY(10px); } }
     .detail-head { flex: 0 0 auto; padding: 18px 20px 15px; border-bottom: 1px solid var(--line); transition: background-color .25s, border-color .25s; }
+    .detail-relation { margin: 8px 0 0; color: var(--accent-2); font-size: 12px; line-height: 1.6; }
+    .detail-relation:empty { display: none; }
+    /* 帯のときだけ見せる定義文 (ホバーのない端末では覗きカードの代わり) */
+    .detail-definition { margin: 8px 0 0; color: #d1dad5; font: 13.5px/1.7 var(--serif); display: none; }
+    .detail-read { display: none; margin-top: 10px; padding: 7px 12px; border: 1px solid rgba(201,255,182,.3); border-radius: 9px; background: rgba(201,255,182,.06); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .detail-read:hover { background: rgba(201,255,182,.12); }
     .detail-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
     .detail-kind { display: flex; align-items: center; gap: 9px; min-width: 0; }
     .detail-type { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-2); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; text-decoration: none; }
@@ -225,14 +292,34 @@
       border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: rgba(255,255,255,.035); cursor: pointer;
     }
     .detail-toggle:hover { color: var(--ink); background: rgba(255,255,255,.08); }
-    .detail-toggle svg { width: 16px; transition: transform .2s ease; }
+    .detail-toggle svg { width: 16px; transition: transform var(--morph) var(--ease-in-out); }
     .detail h2 { margin: 0; font: 500 26px/1.18 var(--serif); letter-spacing: -.02em; }
     .detail-categories { margin-top: 8px; color: var(--faint); font-size: 12px; line-height: 1.65; }
     /* 惑星パネルの所属表示。親の記事名はクリックでその恒星を選択できる */
     .detail-parent { padding: 0; border: 0; background: none; color: var(--accent-2); font: inherit; font-weight: 600; cursor: pointer; }
     .detail-parent:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-    .detail-body { min-height: 88px; padding: 16px 20px; overflow-y: auto; overscroll-behavior: contain; }
+    .detail-body { min-height: 88px; padding: 16px 20px 20px; overflow-y: auto; overscroll-behavior: contain; }
     .detail-body p { margin: 0; color: #d1dad5; font: 15px/1.8 var(--serif); }
+    .detail-body p + p { margin-top: .9em; }
+    /* 導入部の後ろに節の一覧。節本文はここでは読まず、Wikipedia の該当節へ飛ぶ */
+    .detail-toc { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .detail-toc:empty { display: none; }
+    /* 見出しは項目名ではなく、ひとこと (「この先の 13 節は Wikipedia で読めます」)。数字で構えさせない */
+    .detail-toc-title { margin: 0 0 2px; color: var(--muted); font: 13.5px/1.7 var(--serif); }
+    .detail-toc ol { margin: 0; padding: 0; list-style: none; counter-reset: toc; }
+    .detail-toc li { counter-increment: toc; }
+    .detail-toc-note { margin: 0 0 10px; color: var(--faint); font-size: 11.5px; line-height: 1.6; }
+    .detail-toc a { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; color: #d1dad5; font: 14px/1.5 var(--serif); text-decoration: none; }
+    .detail-toc a::before { content: counter(toc, decimal-leading-zero); flex: none; color: var(--faint); font: 11px/1.9 ui-monospace, monospace; }
+    /* 各節は Wikipedia (外部) へ飛ぶ。種別ラベルと同じ矢印アイコンを行末に添えて、その場で開かないことを示す */
+    .detail-toc li a svg { flex: none; align-self: center; width: 11px; height: 11px; margin-left: auto; color: var(--faint); opacity: .7; }
+    /* ホバーの規則は種別ラベルの「Wikipediaで読む」と同じ: アクセント色 + 下線 */
+    .detail-toc a:hover { color: var(--accent); }
+    .detail-toc a:hover .detail-toc-label { text-decoration: underline; text-underline-offset: 3px; }  /* 番号と矢印には引かない */
+    .detail-toc a:hover svg { color: var(--accent); opacity: 1; }
+    .detail-toc .detail-toc-more { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--accent-2); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+    .detail-toc .detail-toc-more:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+    .detail-toc .detail-toc-more svg { width: 11px; height: 11px; }
     .detail-body .skeleton { display: grid; gap: 9px; }
     .detail-body .skeleton i { display: block; height: 8px; border-radius: 5px; background: linear-gradient(90deg, rgba(255,255,255,.03), rgba(255,255,255,.09), rgba(255,255,255,.03)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
     .detail-body .skeleton i:nth-child(2) { width: 87%; } .detail-body .skeleton i:nth-child(3) { width: 63%; }
@@ -257,10 +344,43 @@
     .detail-stats-note { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 12px; }
     .detail-stats-note:empty { display: none; }
     .detail-stats[hidden] { display: none; }
-    .detail.collapsed .detail-head { padding: 8px 8px 8px 20px; border-bottom: 0; }
-    .detail.collapsed .detail-meta { margin: 0; }
-    .detail.collapsed .detail-toggle svg { transform: rotate(180deg); }
-    .detail.collapsed :is(h2, .detail-categories, .detail-body) { display: none; }
+    /* 帯: 現在地の星名と関係だけを残す。ホバーのない端末ではさらに定義文と「読む」を出す */
+    .detail.dock .detail-head { padding: 12px 12px 12px 20px; border-bottom: 0; }
+    .detail.dock .detail-meta { margin-bottom: 4px; }
+    .detail.dock .detail-toggle svg { transform: rotate(180deg); }
+    .detail.dock h2 { font-size: 19px; }
+    .detail.dock :is(.detail-categories, .detail-body) { display: none; }
+    @media (hover: none) {
+      .detail.dock .detail-definition { display: block; }
+      .detail.dock .detail-read { display: inline-block; }
+    }
+    /* マウス操作の広い画面では、帯ではなく右端のノッチ (シートが右へ滑って行き、縁のつまみだけが残った形)。
+       上端はシートの上端と同じ地平線に揃え、記事名を縦書きで示す。押すとシートが戻ってくる */
+    @media (hover: hover) and (min-width: 841px) {
+      /* 畳んだ状態はつまみ。記事名は縦書き (日本語だけ正立、英語だけ横倒し) にせず、文字種を問わず一様に 90° 倒す。
+         倒す向きは反時計回り (下から上へ読む): シートが右端へ圧縮された姿なので、文字の頭はシートの面があった左を向く
+         (sideways は時計回りに倒すので、ブロックごと 180° 回して向きを反転させる) */
+      .detail.dock {
+        right: 0; top: calc(104px + env(safe-area-inset-top)); bottom: auto; width: 46px; max-height: min(52vh, 440px);
+        border-right: 0; border-radius: 14px 0 0 14px; cursor: pointer;
+      }
+      .detail.dock .detail-head { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 5px 16px; }
+      .detail.dock .detail-meta { flex-direction: column; gap: 8px; margin: 0; }
+      .detail.dock .detail-kind { flex-direction: column; }
+      .detail.dock .detail-type { display: none; }  /* 種別ラベルは畳む。回転リングだけ残す */
+      .detail.dock .detail-toggle { order: -1; width: 32px; height: 32px; border-radius: 9px; }
+      .detail.dock .detail-toggle svg { transform: rotate(90deg); }    /* ← 戻ってくる */
+      .detail.sheet .detail-toggle svg { transform: rotate(-90deg); }  /* → 右端へ滑って行く */
+      .detail.dock h2 {
+        writing-mode: vertical-rl; text-orientation: sideways; transform: rotate(180deg); font: 500 14px/1 var(--serif); letter-spacing: .08em;
+        max-height: min(36vh, 300px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted);
+        transition: color .2s var(--ease-out);
+      }
+      .detail.dock:hover h2 { color: var(--ink); }
+      .detail.dock :is(.detail-relation, .detail-definition, .detail-read) { display: none; }
+      .detail.dock.entering { animation-name: notch-in; }
+    }
+    @keyframes notch-in { from { opacity: 0; transform: translateX(12px); } }
 
     /* ---- 権利表示 ------------------------------------------------------ */
     .attribution {
@@ -303,7 +423,9 @@
       .history-position { display: none; }
       .status { top: 78px; }
       .legend { top: 84px; left: 14px; }
-      .detail { right: calc(14px + env(safe-area-inset-right)); bottom: calc(72px + env(safe-area-inset-bottom)); width: min(360px, calc(100% - 28px)); max-height: 43vh; }
+      /* 狭い画面では右の柱ではなく下からのシートにする。帯も同じ場所に出る */
+      .detail, .detail.sheet, .detail.dock { right: calc(14px + env(safe-area-inset-right)); bottom: calc(72px + env(safe-area-inset-bottom)); width: min(420px, calc(100% - 28px)); }
+      .detail.sheet { top: auto; max-height: 58vh; animation-name: panel-in; }
       .attribution { left: calc(14px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom)); max-width: calc(100% - 28px); }
       .controls-hint { display: none; }
       .language-grid { grid-template-columns: repeat(2, 1fr); }
@@ -384,13 +506,27 @@
           </button>
         </div>
         <h2 id="detailTitle"></h2>
+        <p class="detail-relation" id="detailRelation"></p>
+        <p class="detail-definition" id="detailDefinition"></p>
+        <button class="detail-read" id="detailRead" type="button">詳しく読む</button>
         <div class="detail-categories" id="detailCategories"></div>
       </div>
       <div class="detail-body" id="detailBody">
         <div id="detailContent"></div>
+        <nav class="detail-toc" id="detailToc" aria-label="記事の節"></nav>
         <dl class="detail-stats" id="detailStats"></dl>
       </div>
     </aside>
+
+    <!-- 覗きカード: 星の上でカーソルが止まったときに星のそばへ出る (Lookout が制御する) -->
+    <div class="peek" id="peek" role="tooltip" aria-hidden="true">
+      <p class="peek-owner" id="peekOwner"></p>
+      <h3 id="peekTitle"></h3>
+      <p class="peek-definition" id="peekDefinition"></p>
+      <ul class="peek-list" id="peekList"></ul>
+      <div class="peek-categories" id="peekCategories"></div>
+      <div class="peek-hint" id="peekHint">クリックで詳しく読む</div>
+    </div>
 
     <div class="legend" id="legend" aria-hidden="true">
       <div class="legend-row"><i class="legend-dot"></i><span>記事</span></div>
@@ -427,8 +563,22 @@
       // 429 応答には CORS ヘッダーが無いためブラウザからは Retry-After が読めない)。
       // 1 秒超の応答の後はキュー全体を 5 秒休ませる (Robot policy)。
       request: { minGap: 320, backgroundGap: 650, slowThreshold: 1000, slowGap: 5000 },
+      // 優先度の段: 検索 3 > 記事詳細 (クリック) 2 > 覗きカード (ホバー) 1 > 背景の収集 0。クリックはホバーを常に追い越す
+      priority: { search: 3, page: 2, peek: 1, background: 0 },
 
       search: { debounce: 260, limit: 8 },
+
+      // 覗きカード (ホバー)。マウスを振り回しても通信が飽和しないよう、要求を出すのは「滞留」だけにする
+      peek: {
+        dwell: 250,          // 同じ星の上でカーソルが静止してから、カードを出すまで (ms)
+        calmSpeed: .25,      // これより速い動き (px/ms) は「通過」。止まってから dwell を数える
+        hideDelay: 160,      // 星から離れてカードを消すまでの猶予 (ms)。隣の星へ移るときのちらつきを防ぐ
+        linger: 900,         // さらにこれだけ留まったら「興味の兆し」とみなし、着陸用の記事詳細を先読みする (ms)
+        batch: 20,           // 定義文をまとめて取る件数 (同じ星系の未取得の星を同乗させる。TextExtracts の exlimit 上限)
+        budget: { capacity: 3, refill: 1000 },  // ホバー起因の要求の予算 (トークンバケット): 貯金 3 本、1 本/秒で回復。枯れたらローカル情報だけで出す
+        offset: 18,          // 星とカードの間隔 (px)
+        listLimit: 6,        // カテゴリ・その他のカードに箇条書きで見せる記事名の数 (残りは「ほか N 件」)
+      },
 
       // 関連記事の収集と集約
       related: {
@@ -523,6 +673,13 @@
     const isAbort = (error) => error?.name === 'AbortError';
     const byTitle = (a, b) => a.title.localeCompare(b.title, 'ja');
     const plainText = (html) => new DOMParser().parseFromString(html ?? '', 'text/html').body.textContent ?? '';
+    // 手元の抜粋から定義文 (第 1 文) を切り出す。文末が抜粋の中に無ければ null (打ち切られた抜粋なので通信で取り直す)。
+    // 「3.5」のような小数点や「U.S.」のような 1 文字略号のピリオドは終端としない
+    const firstSentence = (text) => {
+      const source = String(text ?? '').replace(/\s+/g, ' ').trim();
+      const match = source.match(/^.*?(?:[。！？]|(?<!\b[A-Z])[.!?](?=\s|$))/s);
+      return match ? match[0].trim() : null;
+    };
     const appendHighlightedText = (element, text, query) => {
       const source = String(text ?? '');
       const needle = query.trim().toLocaleLowerCase();
@@ -697,20 +854,40 @@
       async search(term, signal) {
         const data = await this.request({
           action: 'query', list: 'search', srsearch: term, srnamespace: 0, srlimit: CONFIG.search.limit, srprop: 'snippet',
-        }, { priority: 2, signal });
+        }, { priority: CONFIG.priority.search, signal });
         return (data.query?.search ?? []).map((item) => ({ pageid: item.pageid, title: item.title, snippet: plainText(item.snippet) }));
       }
 
-      // 記事 1 件の詳細 (情報・導入部の抜粋・カテゴリ・曖昧さ回避属性)
-      async page({ pageid, title }, signal) {
+      // 記事 1 件の詳細 (情報・導入部の抜粋・カテゴリ・曖昧さ回避属性)。
+      // URL は優先度に依らず同じなので、ホバーで先読みした応答をクリック時にそのまま使える
+      async page({ pageid, title }, signal, { priority = CONFIG.priority.page } = {}) {
         const data = await this.request({
           action: 'query', ...(pageid ? { pageids: pageid } : { titles: title }),
           prop: 'info|extracts|pageprops|categories', inprop: 'url', redirects: 1,
           exintro: 1, explaintext: 1, exsectionformat: 'plain', ppprop: 'disambiguation', clshow: '!hidden', cllimit: 50,
-        }, { priority: 1, signal });
+        }, { priority, signal });
         const raw = data.query?.pages?.[0];
         if (!raw || raw.missing || raw.invalid) throw new Error(`記事が見つかりませんでした: ${title ?? pageid}`);
         return this.normalizePage(raw);
+      }
+
+      // 覗きカード用の定義文 (導入部の第 1 文) を複数記事分まとめて取る。pageid → 文
+      async definitions(pageids, signal) {
+        const data = await this.request({
+          action: 'query', pageids: pageids.join('|'),
+          prop: 'extracts', exintro: 1, explaintext: 1, exsentences: 1, exlimit: pageids.length,
+        }, { priority: CONFIG.priority.peek, signal });
+        return new Map((data.query?.pages ?? []).map((raw) => [raw.pageid, (raw.extract ?? '').trim()]));
+      }
+
+      // 着陸シートの節構成 (action=parse の目次)。導入部の先に何があるかを示し、節本文は Wikipedia の該当節へ飛ばす
+      async sections({ pageid, title }, signal) {
+        const data = await this.request({
+          action: 'parse', ...(pageid ? { pageid } : { page: title }), prop: 'sections', redirects: 1,
+        }, { priority: CONFIG.priority.page, signal });
+        return (data.parse?.sections ?? [])
+          .filter((section) => section.toclevel === 1)
+          .map((section) => ({ line: plainText(section.line), anchor: section.anchor }));
       }
 
       // 類似記事 (CirrusSearch の morelike:) を抜粋・カテゴリ付きで 1 回で取る。順位は rank に入る
@@ -721,7 +898,7 @@
           prop: 'info|extracts|pageprops|categories', inprop: 'url',
           exintro: 1, explaintext: 1, exchars: 220, exlimit: CONFIG.related.similarLimit,
           ppprop: 'disambiguation', clshow: '!hidden', cllimit: 'max',
-        }, { priority: 1, signal });
+        }, { priority: CONFIG.priority.page, signal });
         return (data.query?.pages ?? []).map((raw) => this.normalizePage(raw)).sort((a, b) => a.rank - b.rank);
       }
 
@@ -734,7 +911,7 @@
           const data = await this.request({
             action: 'query', pageids: pageid, generator: 'links', gplnamespace: 0, gpllimit: CONFIG.related.linkBatch,
             prop: 'info|categories|pageprops', inprop: 'url', clshow: '!hidden', cllimit: 'max', ppprop: 'disambiguation', redirects: 1, ...cont,
-          }, { priority: 0, signal });
+          }, { priority: CONFIG.priority.background, signal });
 
           for (const raw of data.query?.pages ?? []) this.mergePage(pending, raw);
           if (data.batchcomplete) { yield [...pending.values()]; pending = new Map(); }
@@ -751,7 +928,7 @@
         const data = await this.request({
           action: 'query', list: 'search', srsearch: `linksto:"${title.replaceAll('"', '')}"`,
           srnamespace: 0, srsort: 'random', srlimit: CONFIG.related.backlinkSample, srprop: '', srinfo: 'totalhits',
-        }, { priority: 0, signal });
+        }, { priority: CONFIG.priority.background, signal });
         return { total: data.query?.searchinfo?.totalhits ?? 0, pageids: (data.query?.search ?? []).map((item) => item.pageid) };
       }
 
@@ -773,7 +950,7 @@
             const data = await this.request({
               action: 'query', pageids: batch.join('|'),
               prop: 'info|categories|pageprops', inprop: 'url', clshow: '!hidden', cllimit: 'max', ppprop: 'disambiguation', ...cont,
-            }, { priority: 0, signal });
+            }, { priority: CONFIG.priority.background, signal });
             for (const raw of data.query?.pages ?? []) this.mergePage(pending, raw);
             cont = data.continue;
           } while (cont);
@@ -783,7 +960,7 @@
 
       // 別言語版で同じ記事のタイトルを引く (prop=langlinks)
       async langlinkTitle(pageid, lang, signal) {
-        const data = await this.request({ action: 'query', pageids: pageid, prop: 'langlinks', lllang: lang, lllimit: 1 }, { priority: 1, signal });
+        const data = await this.request({ action: 'query', pageids: pageid, prop: 'langlinks', lllang: lang, lllimit: 1 }, { priority: CONFIG.priority.page, signal });
         return data.query?.pages?.[0]?.langlinks?.[0]?.title ?? null;
       }
 
@@ -798,7 +975,7 @@
           const data = await this.request({
             action: 'sitematrix', smtype: 'language', smlangprop: 'code|name|localname|site',
             smsiteprop: 'url|code', smlimit: 'max', ...(smcontinue ? { smcontinue } : {}),
-          }, { priority: 1, endpoint: 'https://meta.wikimedia.org/w/api.php' });
+          }, { priority: CONFIG.priority.page, endpoint: 'https://meta.wikimedia.org/w/api.php' });
 
           for (const group of Object.values(data.sitematrix ?? {})) {
             if (!group || !Array.isArray(group.site)) continue;
@@ -1010,9 +1187,13 @@
 
     // ノードの種類: article (恒星 = 記事) / cluster (惑星 = 共通カテゴリで集約した関連記事) / pool (環のある惑星 = その他の関連記事)
     class GraphView {
-      constructor(container, { onNodeClick }) {
+      constructor(container, { onNodeClick, onNodeHover, onWalk }) {
         this.cfg = CONFIG.graph;
         this.container = container;
+        this.lastFastAt = 0;      // カーソルが最後に速く動いた時刻。覗きカードの「滞留」判定に使う
+        this.pointerTrack = null; // 直前の pointermove の位置と時刻 (速度の算出用)
+        this.viewShift = 0;       // 着陸シートの分だけ注視点を左へずらしている量 (px)
+        this.viewShiftFrame = null;
         this.nodes = [];
         this.links = [];
         this.byId = new Map();
@@ -1049,7 +1230,7 @@
           .cooldownTime(9000)
           .onEngineTick(() => { this.updateFog(); this.updateLabelScales(); })
           .onEngineStop(() => { if (this.autoFrameActive) this.frameSelection({ allowZoomIn: true }); })
-          .onNodeHover((node) => this.setHovered(node, container));
+          .onNodeHover((node) => { this.setHovered(node, container); onNodeHover?.(this.hovered); });
 
         // TrackballControls 標準の D＋ドラッグを、既存ガイドどおり Shift＋左ドラッグの平行移動へ置き換える。
         const controls = this.graph.controls();
@@ -1065,16 +1246,79 @@
         this.resize();
         this.installNodeActivation(onNodeClick);
         window.addEventListener('resize', () => this.resize());
-        for (const type of ['pointerdown', 'pointermove', 'wheel']) {
-          container.addEventListener(type, (event) => {
-            if (type === 'pointermove' && event.buttons === 0) return;
-            this.userBusyUntil = Date.now() + 1500;
-            this.autoFrameActive = false;
-          }, { passive: true });
-        }
+        // 「歩き出した」合図 (ドラッグ・ホイール) は自動フレーミングを止め、覗きカードを畳む。
+        // クリックの手ぶれは歩き出しに数えない (clickTolerance)
+        let dragStart = null;
+        container.addEventListener('pointerdown', (event) => { dragStart = { x: event.clientX, y: event.clientY }; }, { passive: true });
+        container.addEventListener('pointermove', (event) => {
+          this.trackPointer(event);
+          if (event.buttons === 0) return;
+          this.userBusyUntil = Date.now() + 1500;
+          this.autoFrameActive = false;
+          if (dragStart && Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y) > this.cfg.clickTolerance) { dragStart = null; onWalk?.(); }
+        }, { passive: true });
+        container.addEventListener('wheel', () => {
+          this.userBusyUntil = Date.now() + 1500;
+          this.autoFrameActive = false;
+          onWalk?.();
+        }, { passive: true });
       }
 
-      resize() { this.graph.width(window.innerWidth).height(window.innerHeight); }
+      resize() {
+        this.graph.width(window.innerWidth).height(window.innerHeight);
+        this.applyViewShift();
+      }
+
+      // カーソル速度の追跡。calmSpeed より速い動きは「通過」で、その時刻を覚えておく (滞留はここから数える)
+      trackPointer(event) {
+        const now = performance.now();
+        const previous = this.pointerTrack;
+        this.pointerTrack = { x: event.clientX, y: event.clientY, t: now };
+        if (!previous || now - previous.t < 8) return;
+        const speed = Math.hypot(event.clientX - previous.x, event.clientY - previous.y) / (now - previous.t);
+        if (speed > CONFIG.peek.calmSpeed) this.lastFastAt = now;
+      }
+
+      // ノードの画面上の位置 (コンテナ座標)。カメラの向こう側にあれば null
+      screenPosition(node) {
+        if (node?.x == null) return null;
+        const camera = this.graph.camera();
+        const vector = new THREE.Vector3(node.x, node.y, node.z).project(camera);
+        if (vector.z > 1) return null;
+        const rect = this.container.getBoundingClientRect();
+        return { x: (vector.x + 1) / 2 * rect.width, y: (1 - vector.y) / 2 * rect.height };
+      }
+
+      // 着陸シートが右を覆う間は、注視点をその半分だけ左へ寄せて星がシートの陰に入らないようにする。
+      // カメラの view offset で描画領域を横に広い仮想キャンバスの右寄りの窓にすれば、拡大率もレイキャストも変えずに視野だけずれる
+      shiftView(px) {
+        const target = px;
+        cancelAnimationFrame(this.viewShiftFrame);
+        const from = this.viewShift;
+        if (from === target) return;
+        const duration = this.reducedMotion.matches ? 0 : (parseFloat(getComputedStyle(this.container).getPropertyValue('--morph')) || 360);
+        const started = performance.now();
+        const tick = (now) => {
+          const p = duration ? Math.min(1, (now - started) / duration) : 1;
+          const eased = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;  // シートの変形と同じ ease-in-out (cubic)
+          this.viewShift = from + (target - from) * eased;
+          this.applyViewShift();
+          if (p < 1) this.viewShiftFrame = requestAnimationFrame(tick);
+        };
+        this.viewShiftFrame = requestAnimationFrame(tick);
+      }
+
+      applyViewShift() {
+        const camera = this.graph.camera();
+        const width = window.innerWidth, height = window.innerHeight;
+        const shift = Math.round(this.viewShift);
+        if (shift === 0) { camera.clearViewOffset(); camera.aspect = width / height; }
+        else {
+          camera.aspect = (width + 2 * shift) / height;  // 仮想キャンバスの縦横比。縦の画角は変わらないので拡大率は同じ
+          camera.setViewOffset(width + 2 * shift, height, 2 * shift, 0, width, height);
+        }
+        camera.updateProjectionMatrix();
+      }
 
       // ライブラリ既定の1pxドラッグ判定と古いhover結果に頼らず、pointerup時の画面で再raycastする
       installNodeActivation(onNodeClick) {
@@ -1774,7 +2018,10 @@
         const insets = this.viewInsets();
         const visibleV = Math.max(.2, 1 - 2 * Math.max(insets.top, insets.bottom) / insets.height);
         const tanV = Math.tan(halfV) * visibleV;
-        const tanH = Math.tan(halfH);
+        // 着陸シートで視野を寄せている間は、仮想キャンバス (幅 W+2s) のうち星を中心に見える幅 (W-2s) だけに収める
+        const shift = Math.round(this.viewShift);
+        const visibleH = shift ? (window.innerWidth - 2 * shift) / (window.innerWidth + 2 * shift) : 1;
+        const tanH = Math.tan(halfH) * Math.max(.2, visibleH);
         const distances = targets.map((other) => {
           const offset = new THREE.Vector3(other.x - center.x, other.y - center.y, other.z - center.z);
           const depthOffset = offset.dot(forward);
@@ -2038,73 +2285,326 @@
     }
 
     // =====================================================================
+    // 表示: 覗きカード (ホバー)
+    // =====================================================================
+
+    // 星のそばに浮かぶカード。表示中は毎フレーム星の画面位置を追い、右に収まらなければ左へ回る
+    class PeekCard {
+      constructor(graph) {
+        this.graph = graph;
+        this.cfg = CONFIG.peek;
+        this.box = $('#peek');
+        this.owner = $('#peekOwner');
+        this.title = $('#peekTitle');
+        this.definition = $('#peekDefinition');
+        this.list = $('#peekList');
+        this.categories = $('#peekCategories');
+        this.hint = $('#peekHint');
+        this.node = null;
+        this.frame = null;
+        this.switchAnimation = null;
+        this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      }
+
+      get visible() { return this.node !== null; }
+
+      show(node, { owner = '', title = node.name, definition, members = [], more = 0, categories, hint }) {
+        const switching = this.visible && this.node !== node;  // 出たまま別の星へ移った: 中身を一瞬沈めてから差し替える
+        this.node = node;
+        if (switching && !this.reducedMotion.matches) {
+          this.switchAnimation?.cancel();
+          this.switchAnimation = this.box.animate([{ opacity: .25 }, { opacity: 1 }], { duration: 150, easing: getComputedStyle(this.box).getPropertyValue('--ease-out').trim() });
+        }
+        this.owner.textContent = owner;
+        this.title.textContent = title;
+        this.setDefinition(definition);
+        this.list.replaceChildren(...members.map((title) => { const item = document.createElement('li'); item.textContent = title; return item; }));
+        if (more > 0) { const rest = document.createElement('li'); rest.className = 'peek-more'; rest.textContent = `ほか ${more} 件`; this.list.append(rest); }
+        this.categories.replaceChildren(...categories.map((name) => { const chip = document.createElement('span'); chip.textContent = name; return chip; }));
+        this.hint.textContent = hint;
+        this.box.classList.add('visible');
+        this.box.setAttribute('aria-hidden', 'false');
+        this.follow();
+      }
+
+      // 定義文が未取得なら 1 行分のシマーを出し、届いたら差し込む。null は「取れなかった」(何も出さない)
+      setDefinition(text) {
+        this.definition.classList.toggle('pending', text === undefined);
+        this.definition.textContent = text ?? '';
+      }
+
+      hide() {
+        this.node = null;
+        cancelAnimationFrame(this.frame);
+        this.frame = null;
+        this.switchAnimation?.cancel();
+        this.box.classList.remove('visible');
+        this.box.setAttribute('aria-hidden', 'true');
+      }
+
+      // 着陸アニメーションの出発点 (カードが出ていなければ null)
+      rect() { return this.visible ? this.box.getBoundingClientRect() : null; }
+
+      follow() {
+        cancelAnimationFrame(this.frame);
+        const tick = () => {
+          if (!this.node) return;
+          this.place();
+          this.frame = requestAnimationFrame(tick);
+        };
+        this.place();
+        this.frame = requestAnimationFrame(tick);
+      }
+
+      place() {
+        const point = this.graph.screenPosition(this.node);
+        if (!point) return;
+        const gap = this.cfg.offset;
+        const { offsetWidth: width, offsetHeight: height } = this.box;
+        const bounds = this.graph.container.getBoundingClientRect();
+        // 既定は星の左。シートが右にあるので、カードまで右に出すと画面の重心が右へ傾く。左に収まらなければ右へ
+        let x = point.x - gap - width;
+        let originX = '100%';
+        if (x < 12) { x = point.x + gap; originX = '0'; }
+        x = Math.min(Math.max(x, 12), Math.max(12, bounds.width - width - 12));
+        const insets = this.graph.viewInsets();  // ヘッダーと権利表示の帯には入れない
+        const y = Math.min(Math.max(point.y - height * .35, insets.top + 12), bounds.height - insets.bottom - height - 12);
+        this.box.style.setProperty('--origin-x', originX);
+        this.box.style.setProperty('--origin-y', `${Math.max(0, Math.min(100, ((point.y - y) / height) * 100))}%`);
+        this.box.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+      }
+    }
+
+    // ホバー起因の通信の予算 (トークンバケット)。貯金が尽きたらカードはローカル情報だけで出す
+    class PeekBudget {
+      constructor({ capacity, refill }) {
+        Object.assign(this, { capacity, refill });
+        this.tokens = capacity;
+        this.refilledAt = performance.now();
+      }
+
+      take() {
+        const now = performance.now();
+        this.tokens = Math.min(this.capacity, this.tokens + (now - this.refilledAt) / this.refill);
+        this.refilledAt = now;
+        if (this.tokens < 1) return false;
+        this.tokens -= 1;
+        return true;
+      }
+    }
+
+    // 見張り: ホバーを「通過」と「滞留」に分け、滞留した星にだけ覗きカードを出し、必要な定義文を予算の範囲で取りに行く。
+    // 要求は飛行中 1 本 + 待ち 1 本 (最新で上書き) しか持たないので、マウスを振り回しても積み上がらない。
+    // 定義文は同じ星系の未取得の星を同乗させて 1 本で取る (カーソルの軌跡は空間的に連続なので、次に止まる星はたいてい隣)
+    class Lookout {
+      constructor(api, graph, card, { describe, onLinger }) {
+        this.api = api;
+        this.graph = graph;
+        this.card = card;
+        this.describe = describe;   // ノード → { kind, relation, categories, hint }
+        this.onLinger = onLinger;   // 長く留まった星 (興味の兆し) の通知。着陸用の先読みに使う
+        this.cfg = CONFIG.peek;
+        this.budget = new PeekBudget(this.cfg.budget);
+        this.enabled = window.matchMedia('(hover: hover)').matches;  // ホバーのない端末では帯の定義文が代わりを務める
+        this.candidate = null;   // 今ホバー中の星
+        this.hoverAt = 0;
+        this.dwellTimer = null;
+        this.lingerTimer = null;
+        this.hideTimer = null;
+        this.inflight = null;    // 飛行中の定義文要求
+        this.pending = null;     // 待ちの 1 本 (pageid の配列)
+      }
+
+      hover(node) {
+        if (!this.enabled) return;
+        clearTimeout(this.dwellTimer);
+        clearTimeout(this.lingerTimer);
+        clearTimeout(this.hideTimer);
+        this.candidate = node && node !== this.graph.selected ? node : null;  // 現在地の星は着陸済みなのでカードを出さない
+        this.hoverAt = performance.now();
+        if (!this.candidate) {
+          if (this.card.visible) this.hideTimer = setTimeout(() => this.card.hide(), this.cfg.hideDelay);
+          return;
+        }
+        if (this.card.node === this.candidate) return;  // 同じ星に戻ってきた (猶予内)
+        this.waitForDwell();
+      }
+
+      // 滞留 = 「この星に乗ってから」と「最後に速く動いてから」の両方が dwell を超えた。それまでは小刻みに待ち直す
+      waitForDwell() {
+        const since = Math.max(this.hoverAt, this.graph.lastFastAt);
+        const remaining = this.cfg.dwell - (performance.now() - since);
+        if (remaining > 0) { this.dwellTimer = setTimeout(() => this.waitForDwell(), Math.max(remaining, 30)); return; }
+        this.reveal(this.candidate);
+      }
+
+      reveal(node) {
+        const { page } = node;
+        let definition = node.kind === 'article' ? page.definition ?? firstSentence(page.extract) ?? undefined : null;
+        if (definition) page.definition = definition;
+        this.card.show(node, { ...this.describe(node), definition });
+        if (definition === undefined) this.requestDefinitions(node);
+        this.lingerTimer = setTimeout(() => { if (this.candidate === node) this.onLinger(node, this.budget); }, this.cfg.linger - this.cfg.dwell);
+      }
+
+      // 同じ星系 (同じ親) の未取得の星を同乗させる。予算がなければ諦め、カードはローカル情報のまま
+      requestDefinitions(node) {
+        const siblings = this.graph.nodes.filter((other) => other.kind === 'article' && other !== node && other.parentId === node.parentId && other.page.definition === undefined && other.page.pageid);
+        const batch = [node, ...siblings].slice(0, this.cfg.batch).map((n) => n.page.pageid);
+        if (this.inflight) { this.pending = batch; return; }
+        if (!this.budget.take()) { this.card.setDefinition(null); return; }
+        this.inflight = this.api.definitions(batch)
+          .then((found) => {
+            for (const other of this.graph.nodes) {
+              if (other.kind !== 'article' || !found.has(other.page.pageid)) continue;
+              other.page.definition = found.get(other.page.pageid) || null;
+              if (this.card.node === other) this.card.setDefinition(other.page.definition);
+            }
+          })
+          .catch(() => { if (this.card.node === node) this.card.setDefinition(null); })
+          .finally(() => {
+            this.inflight = null;
+            const next = this.pending;
+            this.pending = null;
+            // 待ちの 1 本は、まだその星を見ていて定義文が無いときだけ出す
+            if (next && this.card.node && !this.card.node.page.definition && next.includes(this.card.node.page.pageid)) this.requestDefinitions(this.card.node);
+          });
+      }
+
+      // 着陸 (クリック) や歩き出しでカードを即座に畳む
+      dismiss() {
+        clearTimeout(this.dwellTimer);
+        clearTimeout(this.lingerTimer);
+        clearTimeout(this.hideTimer);
+        this.candidate = null;
+        this.card.hide();
+      }
+    }
+
+    // =====================================================================
     // 表示: 記事詳細パネル・履歴ボタン・状態表示
     // =====================================================================
 
     class DetailPanel {
-      constructor({ onPickMember, onPickParent }) {
+      constructor({ onPickMember, onPickParent, onModeChange }) {
         this.onPickMember = onPickMember;
         this.onPickParent = onPickParent;
+        this.onModeChange = onModeChange;  // sheet ⇄ dock の切り替えをグラフの視野合わせに伝える
         this.panel = $('#detail');
         this.type = $('#detailType');
         this.typeText = $('#detailTypeText');
         this.toggle = $('#detailToggle');
         this.title = $('#detailTitle');
+        this.relation = $('#detailRelation');
+        this.definition = $('#detailDefinition');
+        this.read = $('#detailRead');
         this.categories = $('#detailCategories');
         this.body = $('#detailBody');
         this.content = $('#detailContent');
+        this.toc = $('#detailToc');
         this.stats = $('#detailStats');
         this.shown = null;  // 表示中のノード。背景の収集が別のノードの集計を書き込まないようにする
         this.credit = $('#wikipediaCredit');
-        this.collapsed = false;
-        this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅
+        this.mode = 'sheet';  // sheet (着陸して読む) / dock (帯: 現在地だけ残す)
+        this.morphAnimation = null;
+        this.settledWidth = 0;
+        this.notchMedia = window.matchMedia('(hover: hover) and (min-width: 841px)');  // CSS のノッチ条件と同じ
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-        this.resizeAnimation = null;
-        this.toggle.addEventListener('click', () => this.setCollapsed(!this.collapsed, { animate: true }));
+        this.toggle.addEventListener('click', (event) => { event.stopPropagation(); this.setMode(this.mode === 'sheet' ? 'dock' : 'sheet'); });
+        this.panel.addEventListener('click', () => { if (this.mode === 'dock' && this.notch) this.setMode('sheet'); });  // ノッチはどこを押しても開く
+        this.read.addEventListener('click', () => this.setMode('sheet'));
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && !event.isComposing && this.isOpen && this.mode === 'sheet') this.setMode('dock');
+        });
       }
 
-      hide() { this.panel.classList.remove('open'); }
+      get isOpen() { return this.panel.classList.contains('open'); }
+      get notch() { return this.notchMedia.matches; }
 
-      // 非表示から開くときだけ初期状態を決める。小さな画面ではグラフを隠さないよう折りたたんで出す
-      open() {
-        if (this.panel.classList.contains('open')) return;
+      hide() {
+        this.panel.classList.remove('open', 'sheet', 'dock', 'entering', 'morphing');
+        this.onModeChange?.(null);
+      }
+
+      // 開くときは常にシート (クリック = 興味の表明)。帯へ退くのは歩き出したときと、利用者が畳んだとき
+      open(mode = 'sheet') {
+        const wasOpen = this.isOpen;
         this.panel.classList.add('open');
-        this.setCollapsed(this.compact.matches);
+        if (!wasOpen) {
+          this.panel.classList.add('entering');
+          this.panel.addEventListener('animationend', () => this.panel.classList.remove('entering'), { once: true });
+        }
+        if (!wasOpen || this.mode !== mode) this.setMode(mode, { morph: wasOpen });
       }
 
-      // 開閉は CSS のクラス切り替えで確定させ、animate 指定時は切り替え前後の実寸をつないで箱の伸縮だけ短く見せる
-      setCollapsed(collapsed, { animate = false } = {}) {
-        const before = animate ? this.panel.getBoundingClientRect() : null;
-        this.collapsed = collapsed;
-        this.panel.classList.toggle('collapsed', collapsed);
-        this.toggle.setAttribute('aria-expanded', String(!collapsed));
-        const label = collapsed ? '詳細を開く' : '詳細を閉じる';
+      // シート ⇄ 帯の切り替え。開いている間の切り替えは、クラスを先に確定させてから切り替え前後の実寸を ease-in-out でつなぐ (FLIP)。
+      // 両者は右下の同じ角に錨があるので幅と高さの補間だけで済む。非表示からの初回はそれぞれの入場アニメーションに任せる
+      setMode(mode, { morph: allowMorph = true } = {}) {
+        const morph = allowMorph && this.isOpen && this.mode !== mode && !this.reducedMotion.matches;
+        const before = morph ? this.panel.getBoundingClientRect() : null;
+        this.mode = mode;
+        this.panel.classList.toggle('sheet', mode === 'sheet');
+        this.panel.classList.toggle('dock', mode === 'dock');
+        this.panel.classList.toggle('morphing', morph);
+        this.toggle.setAttribute('aria-expanded', String(mode === 'sheet'));
+        const label = mode === 'sheet' ? (this.notch ? '右端に畳む' : '詳細を閉じる') : '詳しく読む';
         this.toggle.setAttribute('aria-label', label);
         this.toggle.title = label;
-        if (!before || this.reducedMotion.matches) return;
-        const after = this.panel.getBoundingClientRect();
-        if (before.width === after.width && before.height === after.height) return;
-        this.resizeAnimation?.cancel();
-        this.resizeAnimation = this.panel.animate(
-          [{ width: `${before.width}px`, height: `${before.height}px` }, { width: `${after.width}px`, height: `${after.height}px` }],
-          { duration: 220, easing: 'cubic-bezier(.2, .7, .2, 1)' },
-        );
+        this.morphAnimation?.cancel();
+        this.settledWidth = this.panel.getBoundingClientRect().width;  // 変形後の落ち着いた幅 (注視点の寄せはこれで決める)
+        if (morph) {
+          const after = this.panel.getBoundingClientRect();
+          const ease = getComputedStyle(this.panel).getPropertyValue('--ease-in-out').trim();
+          const duration = parseFloat(getComputedStyle(this.panel).getPropertyValue('--morph')) || 360;
+          // 錨が違う形 (シートは右 22px・下 22px、ノッチは右端) の間でも、left/top を直接補間して位置ごとつなぐ
+          // (right/bottom で置いた箱に transform を掛けると、幅の変化で錨がずれて経路が曲がる)
+          const origin = this.panel.offsetParent.getBoundingClientRect();
+          const frame = (r) => ({ left: `${r.left - origin.left}px`, top: `${r.top - origin.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+          this.morphAnimation = this.panel.animate([frame(before), frame(after)], { duration, easing: ease });
+          this.morphAnimation.finished.catch(() => {}).finally(() => this.panel.classList.remove('morphing'));
+        }
+        this.onModeChange?.(this.isOpen ? mode : null);
       }
 
-      showArticle(node, { loading = false } = {}) {
+      // シートを帯に退かせる (帯のときや閉じているときは何もしない)
+      dock() { if (this.isOpen && this.mode === 'sheet') this.setMode('dock'); }
+
+      // 覗きカードの位置からシートへ膨らむ残像。カード → シートが一続きの動作に見えるようにする
+      landFrom(rect) {
+        if (!rect || this.reducedMotion.matches || this.mode !== 'sheet') return;
+        const to = this.panel.getBoundingClientRect();
+        if (!to.width) return;
+        const ghost = document.createElement('div');
+        ghost.className = 'land-ghost';
+        Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+        ghost.style.transformOrigin = '0 0';
+        this.panel.parentElement.append(ghost);
+        ghost.animate(
+          [{ transform: 'none', opacity: 1 }, { transform: `translate(${to.left - rect.left}px, ${to.top - rect.top}px) scale(${to.width / rect.width}, ${to.height / rect.height})`, opacity: 0 }],
+          { duration: 380, easing: getComputedStyle(ghost).getPropertyValue('--ease-out').trim() },
+        ).finished.finally(() => ghost.remove());
+      }
+
+      // 記事を表示する。relation は「なぜここにあるか」の一行。導入部は段落に分け、節構成は届き次第 showSections で足す
+      showArticle(node, { loading = false, relation = '', mode = 'sheet' } = {}) {
         const { page } = node;
-        this.open();
+        this.open(mode);
         this.shown = node;
         this.typeText.textContent = 'Wikipedia article';
         this.type.href = page.url ?? '#';
         this.type.title = 'Wikipediaで読む';
         this.type.setAttribute('aria-label', `Wikipediaで読む: ${page.title}`);
         this.title.textContent = page.title;
+        this.relation.textContent = relation;
+        this.definition.textContent = page.definition ?? firstSentence(page.extract) ?? '';
         this.categories.textContent = (page.categories ?? []).slice(0, 6).join(' · ');
         if (page.extract) {
-          const p = document.createElement('p');
-          p.textContent = page.extract;
-          this.content.replaceChildren(p);
+          const paragraphs = page.extract.split(/\n+/).map((text) => text.trim()).filter(Boolean).map((text) => {
+            const p = document.createElement('p');
+            p.textContent = text;
+            return p;
+          });
+          this.content.replaceChildren(...paragraphs);
         } else if (loading) {
           const skeleton = document.createElement('div');
           skeleton.className = 'skeleton';
@@ -2115,6 +2615,7 @@
           p.textContent = 'このページには表示できる概要がありません。';
           this.content.replaceChildren(p);
         }
+        this.showSections(node, node.sections ?? null);
         this.articleStats(node);
         this.body.scrollTop = 0;
         if (loading) this.setBusy(true);  // 解除は関連記事の収集側が行う (本文より先に収集が走っていることがある)
@@ -2124,14 +2625,62 @@
         this.credit.href = page.url;
       }
 
+      // 導入部の先にある節の一覧。各節は Wikipedia の該当箇所へ飛ぶ。null は未取得 (何も出さない)
+      showSections(node, sections) {
+        if (node !== this.shown) return;
+        if (!sections) { this.toc.replaceChildren(); return; }
+        const { url } = node.page;
+        const title = document.createElement('p');
+        title.className = 'detail-toc-title';
+        title.textContent = sections.length ? `この先の ${sections.length} 節は Wikipedia で読めます。` : 'この記事は導入部だけです。';
+        const note = document.createElement('p');
+        note.className = 'detail-toc-note';
+        note.textContent = sections.length ? '節を選ぶと、該当する箇所が新しいタブで開きます。' : '';
+        const list = document.createElement('ol');
+        for (const section of sections.slice(0, 14)) {
+          const item = document.createElement('li');
+          const link = document.createElement('a');
+          link.href = `${url}#${section.anchor}`;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.title = `Wikipedia で「${section.line}」の節を読む (新しいタブ)`;
+          link.setAttribute('aria-label', link.title);
+          const label = document.createElement('span');
+          label.className = 'detail-toc-label';
+          label.textContent = section.line;
+          link.append(label, DetailPanel.externalArrow());
+          item.append(link);
+          list.append(item);
+        }
+        const more = document.createElement('a');
+        more.className = 'detail-toc-more';
+        more.href = url;
+        more.target = '_blank';
+        more.rel = 'noopener noreferrer';
+        more.title = `Wikipedia で「${node.page.title}」を読む (新しいタブ)`;
+        more.append(document.createTextNode(sections.length > 14 ? `ほか ${sections.length - 14} 節を Wikipedia で読む` : '続きを Wikipedia で読む'), DetailPanel.externalArrow());
+        this.toc.replaceChildren(title, note, list, more);
+      }
+
+      // 外部 (Wikipedia) へ遷移することを示す矢印。種別ラベルのものと同じ形
+      static externalArrow() {
+        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        arrow.setAttribute('viewBox', '0 0 24 24');
+        arrow.setAttribute('aria-hidden', 'true');
+        arrow.innerHTML = '<path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
+        return arrow;
+      }
+
       showCluster(node, parent) {
-        this.open();
+        this.open('sheet');
         this.shown = node;
-        this.typeText.textContent = node.kind === 'cluster' ? 'Category planet' : 'Other links';
+        this.typeText.textContent = node.kind === 'cluster' ? 'カテゴリ' : 'その他';
         this.type.removeAttribute('href');
         this.type.removeAttribute('title');
         this.type.removeAttribute('aria-label');
         this.title.textContent = node.kind === 'cluster' ? node.category : 'その他の関連記事';
+        this.relation.textContent = '';
+        this.definition.textContent = '';
         // 所属: 「親の記事名 に関する N件の記事」。親の名前はその恒星を選択するボタン
         this.categories.replaceChildren();
         if (parent) {
@@ -2147,8 +2696,8 @@
 
         const p = document.createElement('p');
         p.textContent = node.kind === 'cluster'
-          ? 'カテゴリを共有する関連記事をまとめた惑星です。記事名をクリックすると、その記事へ移動します。'
-          : 'どの惑星にも属さない関連記事を集めた、環のある惑星です。記事名をクリックすると、その記事へ移動します。';
+          ? 'このカテゴリを共有する関連記事です。記事名を選ぶと、その記事へ移動します。'
+          : 'どのカテゴリにもまとまらなかった関連記事です。記事名を選ぶと、その記事へ移動します。';
         const list = document.createElement('ul');
         list.className = 'member-list';
         for (const page of node.members) {
@@ -2161,6 +2710,7 @@
           list.append(item);
         }
         this.content.replaceChildren(p, list);
+        this.toc.replaceChildren();
         this.setStats([]);  // 惑星には集計がない (記事数は上段の所属表示に出ている)
         this.body.scrollTop = 0;
       }
@@ -2274,10 +2824,30 @@
       constructor() {
         this.status = new StatusBar();
         this.api = new WikiApi(new RequestQueue(CONFIG.request), (text) => this.status.notice(text));
-        this.graph = new GraphView($('#graph'), { onNodeClick: (node) => this.onNodeClick(node) });
+        this.graph = new GraphView($('#graph'), {
+          onNodeClick: (node) => this.onNodeClick(node),
+          onNodeHover: (node) => this.lookout.hover(node),
+          onWalk: () => this.onWalk(),
+        });
+        // 覗きカード: ホバーで「何の星か・なぜ隣にあるか」を答える。長く留まった星は着陸用の記事詳細を先読みする
+        this.lookout = new Lookout(this.api, this.graph, new PeekCard(this.graph), {
+          describe: (node) => this.describe(node),
+          onLinger: (node, budget) => this.prefetchLanding(node, budget),
+        });
         this.search = new SearchBox(this.api, { onSelect: (result) => this.startFrom(result), onTyping: (active) => this.liftHero(active) });
         this.language = new LanguageDialog({ onSelect: (site) => this.changeLanguage(site), onOpen: () => this.sitesReady });
-        this.detail = new DetailPanel({ onPickMember: (page) => this.selectArticle(page), onPickParent: (star) => this.selectArticle(star.page) });
+        this.detail = new DetailPanel({
+          onPickMember: (page) => this.selectArticle(page),
+          onPickParent: (star) => this.selectArticle(star.page),
+          onModeChange: (mode) => {
+            this.syncViewShift();
+            // 帯からシートへ開いたとき (ホバーのない端末の「読む」) に節構成を取る
+            if (mode === 'sheet' && this.current && this.detail.shown === this.current) this.loadSections(this.current, this.controller?.signal);
+          },
+        });
+        this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅
+        window.addEventListener('resize', () => this.syncViewShift());
+        this.touch = window.matchMedia('(hover: none)');         // ホバーのない端末: タップ = 帯 (覗きカードの代わり)、「読む」= シート
         this.history = new HistoryNav({ onMove: (id) => this.revisit(this.graph.get(id)) });
         this.starfield = new Starfield($('#starfield'), CONFIG.starfield);
         $('.brand').addEventListener('click', () => this.graph.toggleOverview());  // 隠し機能: 全景と元の視点のトグル
@@ -2290,6 +2860,7 @@
         this.introSlot = $('#introSearch');
         this.hero = false;           // 初期画面 (検索欄がタイトルの直下にある状態)
         this.flight = null;          // 検索欄の移動アニメーション
+        this.landing = null;         // 初期画面から到着中の記事星。現れ切るまで着陸シートを開かない
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         this.enterHero({ animate: false });  // HTML の初期状態がすでに初期画面の形なので、ここでは状態を合わせるだけ
       }
@@ -2345,13 +2916,25 @@
         }
       }
 
-      // 本文が届いた (または諦めた) とき: 最低限のワープ時間を確保してから星々を暗闇へ溶かし、記事星を現す
-      arriveHero(node) {
+      // 本文が届いた (または諦めた) とき: 最低限のワープ時間を確保してから星々を暗闇へ溶かし、記事星を現す。
+      // 記事星は検索欄があった画面の中央に現れ、現れ切ってから着陸シートが入ってきて星が左へ席を譲る
+      // (最初からシートを開くと、重心が左に寄った状態で星が現れて違和感がある)
+      arriveHero(node, { failed = false } = {}) {
         if (this.warpStart == null) return;
         const wait = Math.max(0, this.warpStart + CONFIG.starfield.minWarp - performance.now());
         this.warpStart = null;
+        this.landing = node;
         setTimeout(() => this.starfield.fade(), wait);
-        this.graph.arrive(node, { delay: wait + CONFIG.starfield.arrivalDelay, duration: CONFIG.starfield.arrivalDuration });
+        const { arrivalDelay, arrivalDuration } = CONFIG.starfield;
+        this.graph.arrive(node, { delay: wait + arrivalDelay, duration: arrivalDuration });
+        const settle = this.reducedMotion.matches ? 0 : wait + arrivalDelay + arrivalDuration;
+        setTimeout(() => {
+          if (this.landing !== node) return;
+          this.landing = null;
+          if (this.current !== node) return;
+          this.showCurrent(node, { loading: !node.page.detailed && !failed });
+          if (failed) this.detail.showArticleError(node);
+        }, settle);
       }
 
       // 検索欄の DOM を移し、移動前後の位置と幅をつないで飛ばす (FLIP)。候補リストは子要素なので一緒に動く
@@ -2401,6 +2984,8 @@
         this.graph.reset();
         this.history.reset();
         this.current = null;
+        this.landing = null;
+        this.lookout.dismiss();
         this.detail.hide();
         this.detail.resetCredit(this.api.site);
         $('#legend').classList.remove('visible');
@@ -2447,6 +3032,59 @@
         else this.openCluster(node);
       }
 
+      // シートが右を覆う間は注視点をその半分だけ左へ寄せ、星がシートの陰に入らないようにする (下からのシートでは寄せない)
+      syncViewShift() {
+        const covering = this.detail.isOpen && this.detail.mode === 'sheet' && !this.compact.matches;
+        this.graph.shiftView(covering ? this.detail.settledWidth / 2 : 0);  // 変形中の途中の幅ではなく、落ち着いた幅で
+      }
+
+      // 歩き出し (ドラッグ・ホイール): 覗きカードだけ畳む。シートは利用者が畳むまで開いたままにする (勝手に閉じない)
+      onWalk() {
+        this.lookout.dismiss();
+      }
+
+      // ---- 覗きカードの中身: 何の星か・なぜ隣にあるか ------------------------
+
+      describe(node) {
+        if (node.kind !== 'article') {
+          const shown = node.members.slice(0, CONFIG.peek.listLimit).map((page) => page.title);
+          const star = node.parentId ? this.graph.get(node.parentId) : null;
+          // 見出しは件数を付けないカテゴリ名にし、件数は所属の行に回す (「「木星」の関連記事 (85)」)
+          return {
+            owner: `${star ? `「${star.name}」の` : ''}関連記事 (${node.members.length})`,
+            title: node.kind === 'cluster' ? node.category : 'その他の関連記事',
+            members: shown, more: node.members.length - shown.length, categories: [], hint: 'クリックで記事の一覧を開く',
+          };
+        }
+        return { categories: (node.page.categories ?? []).slice(0, 3), hint: 'クリックで詳しく読む' };
+      }
+
+      // 「なぜこの星が隣にあるか」の一行。グラフの辺の由来 (類似・出リンク・被リンク・共有カテゴリ) を言葉にする
+      relationOf(node) {
+        const parent = node.parentId ? this.graph.get(node.parentId) : null;
+        if (node.kind !== 'article') {
+          return parent ? `「${parent.name}」の関連記事 ${node.members.length} 件` : `${node.members.length} 件の記事`;
+        }
+        if (!parent) return '起点の記事';
+        const { page } = node;
+        const via = (name) => (page.via === 'out' ? `「${name}」の本文からリンク` : page.via === 'in' ? `「${name}」を参照している記事` : null);
+        const similar = (name) => (page.rank < 999 ? `「${name}」と内容が近い記事 · 類似 ${page.rank} 位` : null);
+        if (parent.kind === 'article') return similar(parent.name) ?? via(parent.name) ?? `「${parent.name}」から辿った記事`;
+        // 惑星の内包記事: 恒星との関係 + 惑星に入った理由
+        const star = parent.parentId ? this.graph.get(parent.parentId) : null;
+        const reason = parent.kind === 'cluster' ? `カテゴリ「${parent.category}」を共有` : 'その他の関連記事';
+        const primary = star ? via(star.name) ?? similar(star.name) : null;
+        return primary ? `${primary} · ${reason}` : reason;
+      }
+
+      // 長く留まった星 (興味の兆し): 予算があれば着陸用の記事詳細を先に取っておき、クリックした瞬間にシートが埋まるようにする
+      prefetchLanding(node, budget) {
+        if (node.kind !== 'article' || node.page.detailed || !budget.take()) return;
+        this.api.page(node.page, undefined, { priority: CONFIG.priority.peek })
+          .then((page) => { if (this.graph.get(node.id) === node) Object.assign(node.page, Wikiwalker.detailedPage(page)); })
+          .catch(() => { /* 先読みの失敗は黙って諦める。クリック時に改めて取る */ });
+      }
+
       // 履歴で戻る／進む: 記事星なら再選択、惑星・その他なら再び中央に据える (どちらも履歴には積まない)
       revisit(node) {
         if (node.kind === 'article') this.selectArticle(node.page, { fromHistory: true });
@@ -2460,9 +3098,14 @@
         this.controller = new AbortController();
         const { signal } = this.controller;
 
+        // 着陸: 覗きカードが出ていればその位置からシートへ膨らませる
+        const launch = this.lookout.card.rect();
+        this.lookout.dismiss();
+
         // pageid が分かっていれば応答を待たずにノードを置いて画面を先に切り替え、関連記事の収集も本文と並行して始める
         let node = ref.pageid ? this.placeArticle({ categories: [], extract: '', ...ref }, fromHistory) : null;
-        if (!node) this.status.notice('記事星を観測しています…', { hideAfter: 0 });
+        if (!node) this.status.notice('記事を読み込んでいます…', { hideAfter: 0 });
+        if (node) this.detail.landFrom(launch);
 
         let page;
         try {
@@ -2472,7 +3115,7 @@
         } catch (error) {
           if (isAbort(error)) return;
           this.status.notice(error.message, { error: true, hideAfter: 4500 });
-          if (node && runId === this.runId) { this.detail.showArticleError(node); this.arriveHero(node); }
+          if (node && runId === this.runId) { this.detail.showArticleError(node); this.arriveHero(node, { failed: true }); }
           return;
         }
         if (runId !== this.runId) return;
@@ -2480,10 +3123,35 @@
 
         const placed = Boolean(node);
         node ??= this.placeArticle(page, fromHistory);
-        node.page = { ...node.page, ...page };  // 抜粋付きの詳細で上書きする
-        this.detail.showArticle(node);
+        node.page = { ...node.page, ...Wikiwalker.detailedPage(page) };  // 抜粋付きの詳細で上書きする
+        this.showCurrent(node);
         this.arriveHero(node);
         if (!placed) this.startCollecting(node, runId, signal);
+        this.loadSections(node, signal);
+      }
+
+      // 記事詳細の応答を既存の記事レコードに重ねる形。類似順位は詳細の応答には無いので消さない
+      static detailedPage(page) {
+        const { rank, ...rest } = page;
+        return { ...rest, ...(rank < 999 ? { rank } : {}), detailed: true };
+      }
+
+      // 現在地の記事をパネルに出す。ホバーのない端末では帯 (定義文 + 読む) から始め、シートは利用者が開く
+      showCurrent(node, { loading = false } = {}) {
+        if (this.warpStart != null || this.landing === node) return;  // 初期画面からの到着中はまだ出さない (arriveHero が開く)
+        const mode = this.detail.shown === node && this.detail.isOpen ? this.detail.mode : this.touch.matches ? 'dock' : 'sheet';
+        this.detail.showArticle(node, { loading, relation: this.relationOf(node), mode });
+      }
+
+      // 着陸シートの節構成。導入部より先に何があるかを示す (シートを開いているときだけ取る)
+      async loadSections(node, signal) {
+        if (node.sections || this.detail.mode !== 'sheet') return;
+        try {
+          node.sections = await this.api.sections(node.page, signal);
+        } catch (error) {
+          if (!isAbort(error)) node.sections = [];
+        }
+        if (node.sections) this.detail.showSections(node, node.sections);
       }
 
       startCollecting(node, runId, signal) {
@@ -2506,11 +3174,11 @@
         this.current = node;
         this.graph.select(node);
         this.graph.focus(node);
-        this.detail.showArticle(node, { loading: !node.page.extract });
-        this.search.setValue(node.page.title);
-        if (!fromHistory) this.history.push(node.id);
         $('#intro').classList.add('hidden');
         this.leaveHero(node);
+        this.showCurrent(node, { loading: !node.page.detailed });
+        this.search.setValue(node.page.title);
+        if (!fromHistory) this.history.push(node.id);
         $('#legend').classList.add('visible');
         return node;
       }
@@ -2592,6 +3260,7 @@
 
       // 惑星をクリック: 中央に据えてメンバー一覧を詳細パネルに出し、一部を恒星としてグラフに展開する
       openCluster(node, { fromHistory = false } = {}) {
+        this.lookout.dismiss();
         this.graph.inspect(node);
         this.graph.focus(node);
         if (!fromHistory) this.history.push(node.id);
