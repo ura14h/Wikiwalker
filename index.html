@@ -457,7 +457,14 @@
         focusDuration: 850,
         frameDelay: 2200,     // ノード追加が一段落してから自動フレーミングするまでの待ち (ms)
         frameMargin: 1.08,    // 自動フレーミングの余白 (1 = ぴったり)
-        frameCoverage: .85,   // 自動フレーミングで画面に収める近隣ノードの割合。遠い外れ値に引きずられてズームアウトしすぎないようにする
+        frameCoverage: .85,   // 自動フレーミングで画面に収める隣接ノード (新規・既存とも) の割合。遠い外れ値に引きずられてズームアウトしすぎないようにする
+        // 自動フレーミング時の視線の回転。隣接ノードの点群を薄い側から見ればズームアウトが減り、既存の隣接も見渡せる。
+        // 回転は選択ごとに合計 24° まで (人間の有効視野 ≈ 48° の半分)、平均 10°/s 以下でゆっくり動かす。
+        // 視覚誘発性の動揺病 (VIMS) は数分間の持続回転で 14°/s 以上から報告され、自己運動感 (ベクション) の発生には
+        // 通常 2〜10 秒かかる。1 回 2 秒台の小さな回転はその手前に収まる
+        frameRotateMax: 24,       // 選択ごとの回転角の上限 (度)
+        frameRotateSpeed: 10,     // 回転の平均角速度 (度/秒)。角度に応じて移動時間を延ばす
+        frameRotateGain: .12,     // 回転する条件: 必要距離がこの割合以上縮むとき
         framePadding: 8,      // ノードの半径とラベル分の余白 (空間単位)
         // 画面に重なる UI。自動フレーミングではこれらが覆う上下の帯を描画領域から除外して、ノードが隠れないようにする
         frameObstacles: { top: '.topbar', bottom: '.attribution, .controls-hint' },
@@ -997,8 +1004,9 @@
         this.dripTimer = null;
         this.frameTimer = null;
         this.userBusyUntil = 0;  // 利用者がグラフを操作している間は自動ズームアウトを割り込ませない
+        this.autoRotated = 0;    // 今の選択で自動フレーミングが回転した角度の合計 (度)。上限を超えて回り続けない
+        this.upFrame = null;     // 自動回転に合わせて camera.up を回すアニメーション
         this.autoFrameActive = false;  // 最後のカメラ移動が自動調整なら、収束後の寄せ直しを許可する
-        this.freshIds = new Set();  // 今の選択以降に出現したノード。自動フレーミングはこれらを優先して収める
         this.raycaster = new THREE.Raycaster();
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         this.glowTexture = this.createGlowTexture();
@@ -1383,12 +1391,14 @@
         this.focused = null;
         this.hovered = null;
         this.relatedIds.clear();
-        this.freshIds.clear();
         this.animatingLabels.clear();
         if (this.hoverFrame) cancelAnimationFrame(this.hoverFrame);
         this.hoverFrame = null;
         this.autoFrameActive = false;
         this.graph.graphData({ nodes: [], links: [] });
+        cancelAnimationFrame(this.upFrame);
+        this.upFrame = null;
+        this.graph.camera().up.set(0, 1, 0);
         this.graph.cameraPosition({ x: 0, y: 0, z: this.cfg.focusDistance }, { x: 0, y: 0, z: 0 }, 0);
       }
 
@@ -1423,7 +1433,6 @@
         const origin = parent ?? { x: 0, y: 0, z: 0 };
         Object.assign(node, { x: origin.x, y: origin.y, z: origin.z });
         this.nodes.push(node);
-        this.freshIds.add(node.id);
         if (parent) this.links.push({ source: parent.id, target: node.id, kind });
         if (parent?.id === this.selected?.id) this.relatedIds.add(node.id);
         else if (node.id === this.selected?.id && parent) this.relatedIds.add(parent.id);
@@ -1457,7 +1466,7 @@
         if (this.selected) { delete this.selected.fx; delete this.selected.fy; delete this.selected.fz; }
         this.focused = null;
         this.selected = node;
-        this.freshIds.clear();
+        this.autoRotated = 0;
         if (node) {
           this.animatingLabels.delete(node);
           delete node.__labelAnimation;
@@ -1471,7 +1480,7 @@
       inspect(node) {
         if (this.focused) { delete this.focused.fx; delete this.focused.fy; delete this.focused.fz; }
         this.focused = node;
-        this.freshIds.clear();
+        this.autoRotated = 0;
         if (node) {
           this.animatingLabels.delete(node);
           delete node.__labelAnimation;
@@ -1486,9 +1495,39 @@
         const camera = this.graph.cameraPosition();
         const direction = new THREE.Vector3(camera.x - node.x, camera.y - node.y, camera.z - node.z);
         if (direction.lengthSq() === 0) direction.set(0, 0, 1);
-        direction.setLength(this.cfg.focusDistance);
         const duration = this.reducedMotion.matches ? 0 : this.cfg.focusDuration;
-        this.graph.cameraPosition({ x: node.x + direction.x, y: node.y + direction.y, z: node.z + direction.z }, node, duration);
+        this.moveCamera(node, direction.normalize(), this.cfg.focusDistance, duration);
+      }
+
+      // カメラを target から view の向きに distance だけ離れた位置へ動かし、target を注視する。
+      // cameraPosition() は位置と注視点しか補間せず camera.up を置き去りにする。視線が変わるたびに up を同じ回転で回さないと、
+      // 注視点の乗り換えや自動回転が重なるうちに up が視線と平行に近づき、TrackballControls の平行移動 (eye × up と up の方向)
+      // が効かなくなったりズームに化けたりする。位置の補間 (Quadratic InOut) と同じ進み方で up を回し、終了時に視線と直交させる
+      moveCamera(target, view, distance, duration) {
+        const camera = this.graph.camera();
+        const position = camera.position;
+        const previousView = position.clone().sub(this.graph.controls().target);
+        if (previousView.lengthSq() > 0) this.rotateCameraUp(camera, previousView.normalize(), view, duration);
+        const offset = view.clone().multiplyScalar(distance);
+        this.graph.cameraPosition({ x: target.x + offset.x, y: target.y + offset.y, z: target.z + offset.z }, target, duration);
+      }
+
+      rotateCameraUp(camera, fromView, toView, duration) {
+        cancelAnimationFrame(this.upFrame);
+        const rotation = new THREE.Quaternion().setFromUnitVectors(fromView, toView);
+        const from = camera.up.clone();
+        const settle = () => { camera.up.copy(from).applyQuaternion(rotation).projectOnPlane(toView).normalize(); this.upFrame = null; };
+        if (!duration || fromView.distanceToSquared(toView) < 1e-8) { settle(); return; }
+        const start = performance.now();
+        const identity = new THREE.Quaternion();
+        const tick = (now) => {
+          const p = Math.min(1, (now - start) / duration);
+          const eased = p < .5 ? 2 * p * p : 1 - ((-2 * p + 2) ** 2) / 2;
+          camera.up.copy(from).applyQuaternion(identity.clone().slerp(rotation, eased)).normalize();
+          if (p < 1) this.upFrame = requestAnimationFrame(tick);
+          else settle();
+        };
+        this.upFrame = requestAnimationFrame(tick);
       }
 
       // ---- 自動ズームアウト ---------------------------------------------
@@ -1510,26 +1549,15 @@
         this.frameTimer = setTimeout(() => this.frameSelection({ allowZoomIn }), this.cfg.frameDelay);
       }
 
-      // カメラ平面へ投影した実寸から、選択ノードと直接隣接ノードが収まる最短距離を求める。
-      // 既存ノード同士が結び付いて遠くの隣接ノードが増えても引きずられないよう、
-      // 選択後に新しく出現した隣接ノードを優先し、その frameCoverage 割合が収まる距離で止める
+      // カメラ平面へ投影した実寸から、選択ノードと全隣接ノードの frameCoverage 割合が収まる最短距離を求め、必要ならズームアウトする。
+      // 最も遠い少数の隣接には合わせないので、既存ノード同士が結び付いて遠くの隣接が増えても引きずられない。
+      // 動く必要があるときは、視線を少し回して必要距離が大きく縮む向きがあればそちらへ回りながら動く
       frameSelection({ allowZoomIn = false } = {}) {
         if (allowZoomIn && !this.autoFrameActive) return;  // 自動移動後に利用者が触った場合は補正しない
         const center = this.focused ?? this.selected;
         if (!center || this.nodes.length < 2) return;
         if (this.userBusyUntil > Date.now()) { this.scheduleFrame({ allowZoomIn }); return; }  // 手動操作中は後回し
 
-        const camera = this.graph.camera();
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-        const halfV = THREE.MathUtils.degToRad(camera.fov / 2);
-        const halfH = Math.atan(Math.tan(halfV) * camera.aspect);
-        // 注視点は画面中央に置いたままなので、上下の余白のうち大きいほうを両側から除いた帯を有効な視野とみなす
-        const insets = this.viewInsets();
-        const visibleV = Math.max(.2, 1 - 2 * Math.max(insets.top, insets.bottom) / insets.height);
-        const tanV = Math.tan(halfV) * visibleV;
-        const tanH = Math.tan(halfH);
         const neighbors = [];
         for (const link of this.links) {
           const a = linkEnd(link.source), b = linkEnd(link.target);
@@ -1537,8 +1565,59 @@
           if (other) neighbors.push(other);
         }
         if (neighbors.length === 0) { if (allowZoomIn) this.autoFrameActive = false; return; }
-        const fresh = neighbors.filter((node) => this.freshIds.has(node.id));
-        const targets = fresh.length ? fresh : neighbors;
+
+        const camera = this.graph.camera();
+        const position = this.graph.cameraPosition();
+        const direction = new THREE.Vector3(position.x - center.x, position.y - center.y, position.z - center.z);
+        const current = direction.length();
+        const view = direction.clone().normalize();
+        const needed = this.neededDistance(center, neighbors, view, camera);
+        const shouldZoomOut = current + 1 < needed;
+        const shouldCorrectIn = allowZoomIn && current > needed * 1.08;
+        if (!shouldZoomOut && !shouldCorrectIn) { if (allowZoomIn) this.autoFrameActive = false; return; }
+
+        // 視線の候補: 今の向きを中心とした円錐内。回転で必要距離が十分縮む場合だけ採用し、少しの差なら回らない
+        let best = { view, needed, angle: 0 };
+        const budget = this.cfg.frameRotateMax - this.autoRotated;
+        if (budget >= 6 && !this.reducedMotion.matches) {
+          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+          const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+          for (let tilt = 6; tilt <= budget; tilt += 6) {
+            const t = THREE.MathUtils.degToRad(tilt);
+            for (let k = 0; k < 12; k++) {
+              const a = (k / 12) * Math.PI * 2;
+              const candidate = view.clone().multiplyScalar(Math.cos(t))
+                .addScaledVector(right, Math.sin(t) * Math.cos(a))
+                .addScaledVector(up, Math.sin(t) * Math.sin(a))
+                .normalize();
+              const distance = this.neededDistance(center, neighbors, candidate, camera);
+              const cost = distance * (1 + .1 * tilt / this.cfg.frameRotateMax);  // 同程度なら回転が小さいほうを選ぶ
+              if (cost < best.needed * (1 + .1 * best.angle / this.cfg.frameRotateMax)) best = { view: candidate, needed: distance, angle: tilt };
+            }
+          }
+          if (best.angle && best.needed > needed * (1 - this.cfg.frameRotateGain)) best = { view, needed, angle: 0 };
+        }
+
+        const duration = this.reducedMotion.matches ? 0 : Math.max(this.cfg.focusDuration, (best.angle / this.cfg.frameRotateSpeed) * 1000);
+        this.autoRotated += best.angle;
+        this.autoFrameActive = !allowZoomIn;
+        this.moveCamera(center, best.view, Math.max(this.cfg.focusDistance, best.needed), duration);
+      }
+
+      // 視線 view (中心からカメラへの単位ベクトル) で見たとき、targets の frameCoverage 割合が画面に収まるカメラ距離。
+      // 画面の傾き (camera.up) は変えず、上下の余白のうち大きいほうを両側から除いた帯を有効な視野とみなす
+      neededDistance(center, targets, view, camera) {
+        const forward = view.clone().negate();
+        const up = camera.up.clone().projectOnPlane(forward);
+        if (up.lengthSq() < 1e-6) up.set(0, 1, 0).projectOnPlane(forward);
+        up.normalize();
+        const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+        const halfV = THREE.MathUtils.degToRad(camera.fov / 2);
+        const halfH = Math.atan(Math.tan(halfV) * camera.aspect);
+        const insets = this.viewInsets();
+        const visibleV = Math.max(.2, 1 - 2 * Math.max(insets.top, insets.bottom) / insets.height);
+        const tanV = Math.tan(halfV) * visibleV;
+        const tanH = Math.tan(halfH);
         const distances = targets.map((other) => {
           const offset = new THREE.Vector3(other.x - center.x, other.y - center.y, other.z - center.z);
           const depthOffset = offset.dot(forward);
@@ -1547,18 +1626,7 @@
           return Math.max(width / tanH - depthOffset, height / tanV - depthOffset);
         }).sort((a, b) => a - b);
         const rank = Math.min(distances.length, Math.max(1, Math.ceil(distances.length * this.cfg.frameCoverage)));
-        const needed = Math.max(this.cfg.focusDistance, distances[rank - 1]);
-
-        const position = this.graph.cameraPosition();
-        const direction = new THREE.Vector3(position.x - center.x, position.y - center.y, position.z - center.z);
-        const current = direction.length();
-        const shouldZoomOut = current + 1 < needed;
-        const shouldCorrectIn = allowZoomIn && current > needed * 1.08;
-        if (!shouldZoomOut && !shouldCorrectIn) { if (allowZoomIn) this.autoFrameActive = false; return; }
-        direction.setLength(needed);
-        const duration = this.reducedMotion.matches ? 0 : this.cfg.focusDuration;
-        this.autoFrameActive = !allowZoomIn;
-        this.graph.cameraPosition({ x: center.x + direction.x, y: center.y + direction.y, z: center.z + direction.z }, center, duration);
+        return Math.max(this.cfg.focusDistance, distances[rank - 1]);
       }
     }
 
