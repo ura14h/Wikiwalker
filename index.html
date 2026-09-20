@@ -782,6 +782,7 @@
         this.links = [];
         this.byId = new Map();
         this.selected = null;
+        this.focused = null;
         this.hovered = null;
         this.relatedIds = new Set();
         this.animatingLabels = new Set();
@@ -793,6 +794,7 @@
         this.autoFrameActive = false;  // 最後のカメラ移動が自動調整なら、収束後の寄せ直しを許可する
         this.raycaster = new THREE.Raycaster();
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        this.glowTexture = this.createGlowTexture();
 
         // TrackballControls: 左ドラッグで極点をまたいで回転、右ドラッグまたはShift＋左ドラッグで平行移動、ホイールでズーム
         this.graph = ForceGraph3D({ controlType: 'trackball', rendererConfig: { antialias: true } })(container)
@@ -802,9 +804,9 @@
           .nodeLabel(() => '')  // 標準ツールチップではなく、ノード上のラベルを強調する
           .nodeThreeObject((node) => this.createNodeObject(node))
           // 辺の由来: similar (morelike の類似) / cluster (出リンクの集約) / member (星団の展開)
-          .linkColor((link) => (link.kind === 'cluster' ? 'rgba(243,200,135,.45)' : 'rgba(166,218,202,.5)'))
-          .linkWidth((link) => (link.kind === 'similar' ? .85 : .5))
-          .linkOpacity(.7)
+          .linkColor((link) => this.linkColor(link))
+          .linkWidth((link) => this.linkWidth(link))
+          .linkOpacity(.85)
           .d3VelocityDecay(.62)  // 動きを減衰させてレイアウトの揺れを抑える
           .cooldownTime(9000)
           .onEngineTick(() => this.updateFog())
@@ -866,15 +868,55 @@
 
       // ---- ノードの見た目 -----------------------------------------------
 
+      // 中央から外側へ滑らかに消える光を共有し、半透明の球殻に見えるのを避ける
+      createGlowTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 128;
+        const context = canvas.getContext('2d');
+        const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+        gradient.addColorStop(0, 'rgba(255,255,255,.9)');
+        gradient.addColorStop(.16, 'rgba(255,255,255,.68)');
+        gradient.addColorStop(.4, 'rgba(255,255,255,.34)');
+        gradient.addColorStop(.7, 'rgba(255,255,255,.09)');
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 128, 128);
+        return new THREE.CanvasTexture(canvas);
+      }
+
       nodeColor(node) {
-        if (node.kind === 'cluster') return this.cfg.clusterColor;
-        if (node.kind === 'pool') return this.cfg.poolColor;
+        if (node.kind === 'cluster') return this.focusedNodeColor(node, this.cfg.clusterColor);
+        if (node.kind === 'pool') return this.focusedNodeColor(node, this.cfg.poolColor);
         if (node === this.selected) return this.cfg.palette[0];
         return this.cfg.palette[1 + (node.depth % (this.cfg.palette.length - 1))];
       }
 
+      focusedNodeColor(node, baseColor) {
+        if (node !== this.focused) return baseColor;
+        return new THREE.Color(baseColor).lerp(new THREE.Color('#ffffff'), .38).getStyle();
+      }
+
+      isFocusedLink(link) {
+        if (!this.selected || !this.focused) return false;
+        const source = linkEnd(link.source), target = linkEnd(link.target);
+        return (source === this.selected.id && target === this.focused.id)
+          || (source === this.focused.id && target === this.selected.id);
+      }
+
+      linkColor(link) {
+        if (this.isFocusedLink(link)) return 'rgba(255,255,255,1)';
+        // 全体の不透明度を上げた分、通常線のアルファを下げて従来の明るさを保つ
+        return link.kind === 'cluster' ? 'rgba(243,200,135,.37)' : 'rgba(166,218,202,.41)';
+      }
+
+      linkWidth(link) {
+        if (this.isFocusedLink(link)) return 1.8;
+        return link.kind === 'similar' ? .85 : .5;
+      }
+
       visualState(node) {
         if (node === this.selected) return 'selected';
+        if (node === this.focused) return 'focused';
         if (node === this.hovered) return 'hovered';
         if (this.relatedIds.has(node.id)) return 'related';
         return 'normal';
@@ -882,17 +924,18 @@
 
       nodeOpacity(node) {
         const state = this.visualState(node);
-        if (state === 'selected' || state === 'hovered') return 1;
+        if (state === 'selected' || state === 'focused' || state === 'hovered') return 1;
         const fog = this.fogOpacity(node);
         return state === 'related' ? THREE.MathUtils.lerp(fog, 1, this.cfg.relatedBrightness) : fog;
       }
 
       createNodeObject(node) {
         const selected = node === this.selected;
+        const focused = node === this.focused;
         const state = this.visualState(node);
         const color = this.nodeColor(node);
         const opacity = this.nodeOpacity(node);
-        const radius = selected ? 8.2 : node.kind === 'article' ? (node.expanded ? 6.2 : 4.6) : 4.4;
+        const radius = selected ? 8.2 : focused ? 6.4 : node.kind === 'article' ? (node.expanded ? 6.2 : 4.6) : 4.4;
         const group = new THREE.Group();
         const materials = [];
 
@@ -912,22 +955,36 @@
 
         if (node.kind !== 'article') {
           // 星団は傾いた環で囲み、記事星と見分けられるようにする
-          const ring = new THREE.Mesh(new THREE.TorusGeometry(radius + 3.5, .55, 8, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity }));
+          const ringColor = focused ? '#ffffff' : color;
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(radius + 3.5, focused ? .75 : .55, 8, 40), new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity }));
           ring.rotation.x = Math.PI / 2.6;
           group.add(ring);
           materials.push(ring.material);
         }
-        if (selected) {
-          const halo = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.7, 18, 10), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .075, side: THREE.BackSide }));
-          group.add(halo);
+        if (selected || focused) {
+          const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: this.glowTexture,
+            color: '#ffffff',
+            transparent: true,
+            opacity: focused ? .72 : .58,
+            blending: THREE.AdditiveBlending,
+            depthTest: false,
+            depthWrite: false,
+          }));
+          const glowSize = radius * (focused ? 5.2 : 4.8);
+          glow.scale.set(glowSize, glowSize, 1);
+          glow.renderOrder = -1;  // リングとラベルより先に重ねる
+          glow.raycast = () => {};  // 光の広がりでクリック領域を拡大しない
+          group.add(glow);
         }
 
-        const label = new SpriteText(node.name, selected ? 4.9 : 3.7, color);
+        const emphasized = selected || focused;
+        const label = new SpriteText(node.name, emphasized ? 4.9 : 3.7, color);
         label.fontFace = 'sans-serif';
         label.backgroundColor = this.labelBackground(state);
-        label.padding = selected ? 1.7 : .8;
+        label.padding = emphasized ? 1.7 : .8;
         label.borderRadius = 3;
-        label.position.y = radius + (selected ? 7 : node.kind === 'article' ? 4.6 : 6.5);
+        label.position.y = radius + (emphasized ? 7 : node.kind === 'article' ? 4.6 : 6.5);
         label.material.opacity = opacity;
         group.add(label);
         materials.push(label.material);
@@ -937,12 +994,13 @@
         node.__labelScale = 1;
         node.__bodyMaterial = body.material;
         node.__visualMaterials = materials;
-        if (selected) this.setLabelScale(node, this.selectedLabelScale(node));
+        if (emphasized) this.setLabelScale(node, this.selectedLabelScale(node));
         else if (node === this.hovered) this.setLabelScale(node, this.hoverLabelScale(node));
         return group;
       }
 
       emissiveIntensity(state) {
+        if (state === 'focused') return .42;
         if (state === 'selected') return .33;
         if (state === 'hovered') return .28;
         if (state === 'related') return .16;
@@ -950,6 +1008,7 @@
       }
 
       labelBackground(state) {
+        if (state === 'focused') return 'rgba(5,7,11,.82)';
         if (state === 'selected') return 'rgba(5,7,11,.78)';
         if (state === 'hovered') return 'rgba(5,7,11,.86)';
         if (state === 'related') return 'rgba(5,7,11,.58)';
@@ -991,8 +1050,8 @@
         container.style.cursor = node ? 'pointer' : 'grab';
         this.updateNodeVisual(previous);
         this.updateNodeVisual(this.hovered);
-        if (previous && previous !== this.selected) this.queueLabelAnimation(previous, 1);
-        if (this.hovered && this.hovered !== this.selected) this.queueLabelAnimation(this.hovered, this.hoverLabelScale(this.hovered));
+        if (previous && previous !== this.selected && previous !== this.focused) this.queueLabelAnimation(previous, 1);
+        if (this.hovered && this.hovered !== this.selected && this.hovered !== this.focused) this.queueLabelAnimation(this.hovered, this.hoverLabelScale(this.hovered));
         this.animateHoverLabels();
       }
 
@@ -1015,8 +1074,9 @@
       }
 
       updateSelectedLabelScale() {
-        if (!this.selected?.__sprite) return;
-        this.setLabelScale(this.selected, this.selectedLabelScale(this.selected));
+        for (const node of [this.selected, this.focused]) {
+          if (node?.__sprite) this.setLabelScale(node, this.selectedLabelScale(node));
+        }
       }
 
       setLabelScale(node, scale) {
@@ -1065,7 +1125,12 @@
         }
       }
 
-      refreshStyles() { this.graph.nodeThreeObject((node) => this.createNodeObject(node)); }
+      refreshStyles() {
+        this.graph
+          .nodeThreeObject((node) => this.createNodeObject(node))
+          .linkColor((link) => this.linkColor(link))
+          .linkWidth((link) => this.linkWidth(link));
+      }
 
       // ---- グラフの編集 -------------------------------------------------
 
@@ -1078,6 +1143,7 @@
         this.links = [];
         this.byId.clear();
         this.selected = null;
+        this.focused = null;
         this.hovered = null;
         this.relatedIds.clear();
         this.animatingLabels.clear();
@@ -1148,7 +1214,9 @@
 
       // 選択ノードを強調し、位置を固定してレイアウト変化の影響を受けないようにする
       select(node) {
+        if (this.focused) { delete this.focused.fx; delete this.focused.fy; delete this.focused.fz; }
         if (this.selected) { delete this.selected.fx; delete this.selected.fy; delete this.selected.fz; }
+        this.focused = null;
         this.selected = node;
         if (node) {
           this.animatingLabels.delete(node);
@@ -1156,6 +1224,18 @@
         }
         this.rebuildRelatedIds();
         if (node) Object.assign(node, { fx: node.x, fy: node.y, fz: node.z });
+        this.refreshStyles();
+      }
+
+      // 現在の記事は維持したまま、詳細を表示する星団だけを二次的に強調する
+      inspect(node) {
+        if (this.focused) { delete this.focused.fx; delete this.focused.fy; delete this.focused.fz; }
+        this.focused = node;
+        if (node) {
+          this.animatingLabels.delete(node);
+          delete node.__labelAnimation;
+          Object.assign(node, { fx: node.x, fy: node.y, fz: node.z });
+        }
         this.refreshStyles();
       }
 
@@ -1181,7 +1261,7 @@
       // カメラ平面へ投影した実寸から、選択ノードと直接隣接ノードが収まる最短距離を求める
       frameSelection({ allowZoomIn = false } = {}) {
         if (allowZoomIn && !this.autoFrameActive) return;  // 自動移動後に利用者が触った場合は補正しない
-        const center = this.selected;
+        const center = this.focused ?? this.selected;
         if (!center || this.nodes.length < 2) return;
         if (this.userBusyUntil > Date.now()) { this.scheduleFrame({ allowZoomIn }); return; }  // 手動操作中は後回し
 
@@ -1830,7 +1910,7 @@
 
       // 星団をクリック: 中央に据えてメンバー一覧を詳細パネルに出し、一部をグラフに展開する
       openCluster(node) {
-        this.graph.select(node);
+        this.graph.inspect(node);
         this.graph.focus(node);
         this.detail.showCluster(node);
         this.detail.setProgress(node.expanded ? '展開済み' : `${node.members.length} 件のうち ${Math.min(node.members.length, CONFIG.related.expandLimit)} 件を展開`);
