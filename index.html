@@ -378,9 +378,11 @@
     // =====================================================================
 
     const CONFIG = {
-      // 呼び出しレート: 同時 1 件・間隔 320ms (200 件/分・5 件/秒未満を守る)。
+      // 呼び出しレート: 同時 1 件。対話的な要求 (検索・記事表示) は 320ms 間隔、背景の収集は 650ms 間隔にして
+      // 持続的な流量を 1.5 件/秒未満に抑える (匿名アクセスへのエッジ側の制限は API のエチケットより厳しく、
+      // 429 応答には CORS ヘッダーが無いためブラウザからは Retry-After が読めない)。
       // 1 秒超の応答の後はキュー全体を 5 秒休ませる (Robot policy)。
-      request: { minGap: 320, slowThreshold: 1000, slowGap: 5000 },
+      request: { minGap: 320, backgroundGap: 650, slowThreshold: 1000, slowGap: 5000 },
 
       search: { debounce: 260, limit: 8 },
 
@@ -390,6 +392,8 @@
         directMax: 10,       // 類似記事のうち直接ノードにする上限 (残りは星団へ)
         linkBatch: 50,       // generator=links の 1 回あたり件数
         maxLinkRequests: 6,  // 出リンク列挙の上限リクエスト数 (最大 300 リンク)
+        backlinkSample: 100, // 被リンクは全数ではなく無作為標本をこの件数だけ集約に加える (要求 1 + 属性 2 回)
+        pageBatch: 50,       // pageids 指定で属性を引くときの 1 回あたり件数 (API の上限)
         minClusterSize: 3,   // これ以上の記事が同じカテゴリを共有すれば星団にする
         maxClusters: 12,     // 星団の上限。超過分は「その他」へ
         expandLimit: 16,     // 星団を開いたときにグラフへ出す記事数
@@ -465,10 +469,11 @@
     // Wikipedia の利用制限を守るため、全リクエストを 1 本の直列キューに通す。
     // priority が高いタスク (検索・記事表示) は待ち行列の先頭に割り込む。
     class RequestQueue {
-      constructor({ minGap, slowThreshold, slowGap }) {
-        Object.assign(this, { minGap, slowThreshold, slowGap });
+      constructor({ minGap, backgroundGap, slowThreshold, slowGap }) {
+        Object.assign(this, { minGap, backgroundGap, slowThreshold, slowGap });
         this.tasks = [];
-        this.readyAt = 0;  // 次のリクエストを開始してよい時刻
+        this.readyAt = 0;     // サーバー指示や遅い応答による全体の保留が明ける時刻
+        this.finishedAt = 0;  // 直前のリクエストが完了した時刻。次の間隔はここから数える
         this.pumping = false;
       }
 
@@ -491,16 +496,17 @@
           const task = this.tasks[0];
           if (task.signal?.aborted) { this.tasks.shift(); task.reject(abortError()); continue; }
 
-          // 待機は小刻みにして、その間に割り込んだ優先タスクを先に通せるようにする
-          const wait = this.readyAt - Date.now();
+          // 間隔は次に通すタスクの種類で決める。待機は小刻みにして、その間に割り込んだ優先タスクを先に通せるようにする
+          const gap = task.priority > 0 ? this.minGap : this.backgroundGap;
+          const wait = Math.max(this.readyAt, this.finishedAt + gap) - Date.now();
           if (wait > 0) { await sleep(Math.min(wait, 100)); continue; }
           this.tasks.shift();
 
           const started = Date.now();
           try { task.resolve(await task.run()); } catch (error) { task.reject(error); }
 
-          const took = Date.now() - started;
-          this.readyAt = Date.now() + (took > this.slowThreshold ? this.slowGap : this.minGap);
+          this.finishedAt = Date.now();
+          if (this.finishedAt - started > this.slowThreshold) this.holdFor(this.slowGap);
         }
         this.pumping = false;
       }
@@ -658,6 +664,43 @@
           cont = data.continue;
         }
         if (pending.size) yield [...pending.values()];
+      }
+
+      // 被リンクの無作為標本 (CirrusSearch の linksto: を srsort=random で)。
+      // 母集団の件数 (totalhits) と pageid だけを取り、属性は pagesByIds で別に引く。
+      // random は要求のたびに標本が変わるので、generator=search に prop を重ねて継続取得することはできない
+      async backlinkSample(title, signal) {
+        const data = await this.request({
+          action: 'query', list: 'search', srsearch: `linksto:"${title.replaceAll('"', '')}"`,
+          srnamespace: 0, srsort: 'random', srlimit: CONFIG.related.backlinkSample, srprop: '', srinfo: 'totalhits',
+        }, { priority: 0, signal });
+        return { total: data.query?.searchinfo?.totalhits ?? 0, pageids: (data.query?.search ?? []).map((item) => item.pageid) };
+      }
+
+      // 被リンク標本をカテゴリ付きでバッチごとに列挙する (linkedPages と同じ形)。母集団の件数は stats.total に入れる
+      async *backlinkPages(title, signal, stats = {}) {
+        const { total, pageids } = await this.backlinkSample(title, signal);
+        stats.total = total;
+        stats.sampled = pageids.length;
+        yield* this.pagesByIds(pageids, signal);
+      }
+
+      // pageid の一覧をカテゴリ付きの記事レコードにして、バッチごとに yield する
+      async *pagesByIds(pageids, signal) {
+        for (let start = 0; start < pageids.length; start += CONFIG.related.pageBatch) {
+          const batch = pageids.slice(start, start + CONFIG.related.pageBatch);
+          let pending = new Map();
+          let cont = {};
+          do {
+            const data = await this.request({
+              action: 'query', pageids: batch.join('|'),
+              prop: 'info|categories|pageprops', inprop: 'url', clshow: '!hidden', cllimit: 'max', ppprop: 'disambiguation', ...cont,
+            }, { priority: 0, signal });
+            for (const raw of data.query?.pages ?? []) this.mergePage(pending, raw);
+            cont = data.continue;
+          } while (cont);
+          yield [...pending.values()];
+        }
       }
 
       // 別言語版で同じ記事のタイトルを引く (prop=langlinks)
@@ -1342,6 +1385,23 @@
     // force-graph はリンクの source/target を ID から実体オブジェクトへ置き換える
     const linkEnd = (end) => (typeof end === 'object' ? end.id : end);
 
+    // 複数の非同期供給源 ({ via, pages: AsyncIterator }) を巡回して、届いたバッチを { via, pages } で順に yield する。
+    // 各供給源の次のバッチは前もって要求しておくので、通信キューには両者の要求が交互に並ぶ。片方が尽きたら残りは他方だけ
+    async function* alternate(sources) {
+      const pending = sources.map((source) => source.pages.next());
+      pending.forEach((promise) => promise.catch(() => {}));  // 先行要求は後で await するまで未処理拒否として扱わせない
+      while (pending.some(Boolean)) {
+        for (let i = 0; i < sources.length; i++) {
+          if (!pending[i]) continue;
+          const { value, done } = await pending[i];
+          if (done) { pending[i] = null; continue; }
+          pending[i] = sources[i].pages.next();
+          pending[i].catch(() => {});
+          yield { via: sources[i].via, pages: value };
+        }
+      }
+    }
+
     // =====================================================================
     // 表示: インクリメンタル検索
     // =====================================================================
@@ -1931,19 +1991,28 @@
           { busy: true },
         );
 
-        // 2. 全出リンク: バッチごとにカテゴリで集約し、星団として逐次反映する
-        let total = 0;
-        for await (const pages of this.api.linkedPages(node.page.pageid, signal)) {
+        // 2. 出リンク (この記事が説明に使うもの) と被リンクの標本 (この記事を使う側: 応用・具体例・関係人物) を
+        //    同じ歩幅で交互に集約する。星団の枠 (maxClusters) は先着順に埋まるので、片方を先に流し切ると
+        //    もう片方のカテゴリが星団になる機会を失う。交互に流せば実際のカテゴリ共有数で競い、配分はデータ次第になる
+        const counts = { out: 0, in: 0 };
+        const backlinks = {};
+        const sources = [
+          { via: 'out', pages: this.api.linkedPages(node.page.pageid, signal) },
+          { via: 'in', pages: this.api.backlinkPages(node.page.title, signal, backlinks) },
+        ];
+        for await (const { via, pages } of alternate(sources)) {
           if (runId !== this.runId) return;
-          total += pages.length;
+          counts[via] += pages.length;
+          for (const page of pages) page.via = via;
           for (const cluster of aggregator.addCandidates(pages)) this.syncCluster(node, cluster, depth);
           this.syncPool(node, aggregator, depth);
-          this.detail.setProgress(`出リンク ${total} 件を確認。星団 ${aggregator.clusters.size} 個`, { busy: true });
+          this.detail.setProgress(`出リンク ${counts.out} 件・被リンク ${counts.in} 件を確認。星団 ${aggregator.clusters.size} 個`, { busy: true });
         }
         if (runId !== this.runId) return;
 
-        const truncated = total >= CONFIG.related.linkBatch * CONFIG.related.maxLinkRequests ? '（先頭のみ）' : '';
-        node.summary = `探索済み ・ 直接 ${direct.length} / 星団 ${aggregator.clusters.size} / その他 ${aggregator.pool.length} ・ 出リンク ${total} 件${truncated}`;
+        const truncated = counts.out >= CONFIG.related.linkBatch * CONFIG.related.maxLinkRequests ? '（先頭のみ）' : '';
+        const backlinkNote = backlinks.total > backlinks.sampled ? `約 ${backlinks.total.toLocaleString()} 件（${backlinks.sampled} 件を抽出）` : `${backlinks.total ?? 0} 件`;
+        node.summary = `探索済み ・ 直接 ${direct.length} / 星団 ${aggregator.clusters.size} / その他 ${aggregator.pool.length} ・ 出リンク ${counts.out} 件${truncated} / 被リンク ${backlinkNote}`;
         this.detail.setProgress(node.summary);
       }
 
