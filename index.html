@@ -163,7 +163,7 @@
     .legend-row { display: flex; align-items: center; gap: 8px; }
     .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px currentColor; }
     .legend-dot.cluster { background: var(--warm); box-shadow: 0 0 0 2px var(--space), 0 0 0 3px var(--warm); width: 5px; height: 5px; margin: 0 1px; }
-    .legend-dot.pool { background: #8b95a3; box-shadow: 0 0 0 2px var(--space), 0 0 0 3px #8b95a3; width: 5px; height: 5px; margin: 0 1px; }
+    .legend-dot.pool { background: #86d98d; box-shadow: 0 0 0 2px var(--space), 0 0 0 3px #86d98d; width: 5px; height: 5px; margin: 0 1px; }
 
     .controls-hint {
       position: absolute; z-index: 5; left: 50%; bottom: 20px; transform: translateX(-50%);
@@ -420,7 +420,7 @@
         hoverDuration: 100,    // ホバーラベルの拡縮が完了するまでの時間 (ms)
         palette: ['#eaffdf', '#8edfc5', '#a7c7ff', '#dab5ff', '#f2d18e', '#91d6ef'],  // 深さごとの記事星の色
         clusterColor: '#f3c887',
-        poolColor: '#8b95a3',
+        poolColor: '#86d98d',  // 星団の暖色・記事星のミントと色相が重ならない葉の緑
         fogNear: 80, fogFar: 600, baseOpacity: .9, minOpacity: .36,
       },
 
