@@ -111,7 +111,9 @@
       background: transparent; cursor: pointer;
     }
     .result-item:last-child { border-bottom: 0; }
-    .result-item:hover, .result-item.active { background: rgba(201,255,182,.075); }
+    /* 仮選択 (キーボードで動かし Enter で決定する行) は塗り、ホバーは枠だけ。マウスは仮選択を動かさず、クリックで直接決定する */
+    .result-item.active { background: rgba(201,255,182,.075); }
+    .result-item:hover:not(.active) { box-shadow: inset 0 0 0 1px rgba(201,255,182,.22); }
     .result-index {
       display: grid; place-items: center; align-self: start; width: 28px; height: 28px; border-radius: 50%;
       border: 1px solid var(--line); color: var(--faint); font-size: 11px;
@@ -1853,7 +1855,8 @@
           appendHighlightedText(extract, result.snippet || '記事を開く', this.term);
           copy.append(title, extract);
           button.append(number, copy);
-          button.addEventListener('pointerenter', () => this.highlight(index));
+          // ホバーは見た目だけ (CSS)。仮選択はキーボードでしか動かさないので、初期画面の持ち上げでリストが
+          // 静止したポインターの下に来ても、マウスの微動でも、Enter で決まる行は変わらない。クリックはその行を直接決定する
           button.addEventListener('click', () => this.choose(index));
           this.list.append(button);
         });
