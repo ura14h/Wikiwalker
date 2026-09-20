@@ -312,9 +312,9 @@
       </div>
 
       <nav class="history" aria-label="記事の選択履歴">
-        <button id="prevButton" type="button" aria-label="前の記事 (Prev)" title="Prev" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m15 6-6 6 6 6"/></svg></button>
+        <button id="prevButton" type="button" aria-label="戻る" title="戻る" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m15 6-6 6 6 6"/></svg></button>
         <span class="history-position" id="historyPosition">0 / 0</span>
-        <button id="nextButton" type="button" aria-label="次の記事 (Next)" title="Next" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m9 6 6 6-6 6"/></svg></button>
+        <button id="nextButton" type="button" aria-label="進む" title="進む" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m9 6 6 6-6 6"/></svg></button>
       </nav>
     </header>
 
@@ -1757,7 +1757,7 @@
       }
     }
 
-    // 選択履歴のスタック。Prev で戻り、Next で戻る前の記事へ進む
+    // 選択履歴のスタック。記事星だけでなく開いた星団・その他も 1 段として積み、戻る／進むで辿り直せる
     class HistoryNav {
       constructor({ onMove }) {
         this.entries = [];
@@ -1821,7 +1821,7 @@
         this.search = new SearchBox(this.api, { onSelect: (result) => this.startFrom(result) });
         this.language = new LanguageDialog({ onSelect: (site) => this.changeLanguage(site), onOpen: () => this.sitesReady });
         this.detail = new DetailPanel({ onPickMember: (page) => this.selectArticle(page) });
-        this.history = new HistoryNav({ onMove: (id) => this.selectArticle(this.graph.get(id).page, { fromHistory: true }) });
+        this.history = new HistoryNav({ onMove: (id) => this.revisit(this.graph.get(id)) });
         this.current = null;         // 選択中の記事ノード
         this.controller = null;      // バックグラウンド収集の中断用
         this.runId = 0;              // 収集 run の識別子。古い run の結果は捨てる
@@ -1903,6 +1903,12 @@
       onNodeClick(node) {
         if (node.kind === 'article') this.selectArticle(node.page);
         else this.openCluster(node);
+      }
+
+      // 履歴で戻る／進む: 記事星なら再選択、星団・その他なら再び中央に据える (どちらも履歴には積まない)
+      revisit(node) {
+        if (node.kind === 'article') this.selectArticle(node.page, { fromHistory: true });
+        else this.openCluster(node, { fromHistory: true });
       }
 
       // 記事を選択する: ノードを中央に据え、詳細を表示し、関連記事の収集を始める (場面 #3 → #4)
@@ -2034,10 +2040,11 @@
       }
 
       // 星団をクリック: 中央に据えてメンバー一覧を詳細パネルに出し、一部をグラフに展開する
-      openCluster(node) {
+      openCluster(node, { fromHistory = false } = {}) {
         this.graph.inspect(node);
         this.graph.focus(node);
         this.detail.showCluster(node);
+        if (!fromHistory) this.history.push(node.id);
         this.detail.setProgress(node.expanded ? '展開済み' : `${node.members.length} 件のうち ${Math.min(node.members.length, CONFIG.related.expandLimit)} 件を展開`);
         if (node.expanded) return;
         node.expanded = true;
