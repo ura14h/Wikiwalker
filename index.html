@@ -322,7 +322,7 @@
   </script>
 </head>
 <body>
-  <main class="app">
+  <main class="app hero">
     <div id="graph" aria-label="Wikipedia記事の3D関係グラフ"></div>
     <canvas class="starfield" id="starfield" aria-hidden="true"></canvas>
 
@@ -332,19 +332,7 @@
         <div class="brand-copy"><strong>Wikiwalker</strong><span>Atlas of knowledge</span></div>
       </div>
 
-      <div class="search-shell">
-        <div class="search-row">
-          <button class="language-button" id="languageButton" type="button" aria-label="Wikipediaの言語を選択">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.4 2.5 3.6 5.5 3.6 9S14.4 18.5 12 21c-2.4-2.5-3.6-5.5-3.6-9S9.6 5.5 12 3Z"/></svg>
-            <span id="languageCode">JA</span>
-          </button>
-          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-          <input id="searchInput" type="search" autocomplete="off" spellcheck="false" placeholder="記事を検索して、歩きはじめる" aria-label="Wikipediaの記事を検索" aria-controls="searchResults" aria-autocomplete="list" aria-expanded="false">
-          <button class="search-clear" id="searchClear" type="button" aria-label="検索語を消去">×</button>
-        </div>
-        <div class="search-results" id="searchResults" role="listbox"></div>
-      </div>
-
+      <!-- 検索欄は初期画面では intro の中 (#introSearch) にあり、最初の記事を選ぶとここへ移る -->
       <nav class="history" aria-label="記事の選択履歴">
         <button id="prevButton" type="button" aria-label="戻る" title="戻る" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m15 6-6 6 6 6"/></svg></button>
         <span class="history-position" id="historyPosition">0 / 0</span>
@@ -356,7 +344,20 @@
       <div class="intro-kicker">An open encyclopedia, reimagined</div>
       <h1>知識の宇宙を<span class="punct">、</span><br><em>歩く<span class="punct">。</span></em></h1>
       <p>ひとつの記事から、思いがけない隣の世界へ。<br>Wikipediaのつながりを星図のように辿ります。</p>
-      <div class="intro-search" id="introSearch"></div>
+      <div class="intro-search" id="introSearch">
+        <div class="search-shell">
+          <div class="search-row">
+            <button class="language-button" id="languageButton" type="button" aria-label="Wikipediaの言語を選択">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.4 2.5 3.6 5.5 3.6 9S14.4 18.5 12 21c-2.4-2.5-3.6-5.5-3.6-9S9.6 5.5 12 3Z"/></svg>
+              <span id="languageCode">JA</span>
+            </button>
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+            <input id="searchInput" type="search" autocomplete="off" spellcheck="false" placeholder="記事を検索して、歩きはじめる" aria-label="Wikipediaの記事を検索" aria-controls="searchResults" aria-autocomplete="list" aria-expanded="false">
+            <button class="search-clear" id="searchClear" type="button" aria-label="検索語を消去">×</button>
+          </div>
+          <div class="search-results" id="searchResults" role="listbox"></div>
+        </div>
+      </div>
     </section>
 
     <div class="status" id="status" role="status" aria-live="polite"><span class="status-dot"></span><span id="statusText"></span></div>
@@ -2051,7 +2052,7 @@
         this.hero = false;           // 初期画面 (検索欄がタイトルの直下にある状態)
         this.flight = null;          // 検索欄の移動アニメーション
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-        this.enterHero({ animate: false });  // 起動時は最初から中央に置く
+        this.enterHero({ animate: false });  // HTML の初期状態がすでに初期画面の形なので、ここでは状態を合わせるだけ
       }
 
       // ---- 初期画面と検索欄の位置 ---------------------------------------
