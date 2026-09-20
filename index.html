@@ -180,11 +180,15 @@
     .detail.open { display: flex; animation: panel-in .35s ease-out both; }
     .detail.collapsed { width: auto; min-width: 215px; max-height: none; }
     @keyframes panel-in { from { opacity: 0; transform: translateY(10px); } }
-    .detail-head { flex: 0 0 auto; padding: 18px 20px 15px; border-bottom: 1px solid var(--line); }
+    .detail-head { flex: 0 0 auto; padding: 18px 20px 15px; border-bottom: 1px solid var(--line); transition: background-color .25s, border-color .25s; }
     .detail-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .detail-type { color: var(--accent-2); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; text-decoration: none; }
+    .detail-kind { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .detail-type { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-2); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; text-decoration: none; }
     .detail-type[href]:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
     .detail-type:not([href]) { color: var(--muted); }
+    /* 外部リンク (Wikipedia へ遷移する) ことを示す矢印アイコン。リンクでないときは出さない */
+    .detail-type svg { width: 11px; height: 11px; flex: none; }
+    .detail-type:not([href]) svg { display: none; }
     .detail-toggle {
       flex: none; display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
       border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: rgba(255,255,255,.035); cursor: pointer;
@@ -207,13 +211,12 @@
     .member-list button::before { content: "·"; margin-right: 8px; color: var(--accent); }
     .member-list button:hover { color: var(--accent); }
     .detail-foot { display: flex; align-items: center; gap: 10px; padding: 12px 20px 15px; border-top: 1px solid var(--line); transition: background-color .25s, border-color .25s; }
-    /* 通信中は最下段の背景色を変えて知らせる (点滅はドットだけ)。折りたたみ中は上段で伝える */
-    .detail.loading .detail-foot { background: rgba(127,227,205,.16); border-top-color: rgba(127,227,205,.55); }
+    /* 通信中は上段と最下段の背景色を変えて知らせる。点滅ドットは折りたたみ中でも見える上段の種別ラベル横に置く */
+    .detail.loading :is(.detail-head, .detail-foot) { background: rgba(127,227,205,.16); border-color: rgba(127,227,205,.55); }
     .detail.loading .detail-hint { color: var(--ink); }
-    .detail.collapsed .detail-head { transition: background-color .25s; }
-    .detail.collapsed.loading .detail-head { background: rgba(127,227,205,.16); }
+    .detail-busy { display: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); animation: pulse 1.4s ease-in-out infinite; flex: none; }
+    .detail.loading .detail-busy { display: block; }
     .detail-hint { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: left; }
-    .detail-hint .busy { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); animation: pulse 1.4s ease-in-out infinite; flex: none; }
     .detail.collapsed .detail-head { padding: 8px 8px 8px 20px; border-bottom: 0; }
     .detail.collapsed .detail-meta { margin: 0; }
     .detail.collapsed .detail-toggle svg { transform: rotate(180deg); }
@@ -327,7 +330,13 @@
     <aside class="detail" id="detail" aria-live="polite">
       <div class="detail-head">
         <div class="detail-meta">
-          <a class="detail-type" id="detailType" target="_blank" rel="noopener noreferrer">Wikipedia article</a>
+          <span class="detail-kind">
+            <a class="detail-type" id="detailType" target="_blank" rel="noopener noreferrer">
+              <span id="detailTypeText">Wikipedia article</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6"/></svg>
+            </a>
+            <i class="detail-busy" id="detailBusy" aria-hidden="true"></i>
+          </span>
           <button class="detail-toggle" id="detailToggle" type="button" aria-controls="detailTitle detailCategories detailBody detailFoot" aria-expanded="true" aria-label="詳細を閉じる" title="詳細を閉じる">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
           </button>
@@ -1565,6 +1574,7 @@
         this.onPickMember = onPickMember;
         this.panel = $('#detail');
         this.type = $('#detailType');
+        this.typeText = $('#detailTypeText');
         this.toggle = $('#detailToggle');
         this.title = $('#detailTitle');
         this.categories = $('#detailCategories');
@@ -1572,24 +1582,44 @@
         this.hint = $('#detailHint');
         this.credit = $('#wikipediaCredit');
         this.collapsed = false;
-        this.toggle.addEventListener('click', () => this.setCollapsed(!this.collapsed));
+        this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅
+        this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        this.resizeAnimation = null;
+        this.toggle.addEventListener('click', () => this.setCollapsed(!this.collapsed, { animate: true }));
       }
 
       hide() { this.panel.classList.remove('open'); }
 
-      setCollapsed(collapsed) {
+      // 非表示から開くときだけ初期状態を決める。小さな画面ではグラフを隠さないよう折りたたんで出す
+      open() {
+        if (this.panel.classList.contains('open')) return;
+        this.panel.classList.add('open');
+        this.setCollapsed(this.compact.matches);
+      }
+
+      // 開閉は CSS のクラス切り替えで確定させ、animate 指定時は切り替え前後の実寸をつないで箱の伸縮だけ短く見せる
+      setCollapsed(collapsed, { animate = false } = {}) {
+        const before = animate ? this.panel.getBoundingClientRect() : null;
         this.collapsed = collapsed;
         this.panel.classList.toggle('collapsed', collapsed);
         this.toggle.setAttribute('aria-expanded', String(!collapsed));
         const label = collapsed ? '詳細を開く' : '詳細を閉じる';
         this.toggle.setAttribute('aria-label', label);
         this.toggle.title = label;
+        if (!before || this.reducedMotion.matches) return;
+        const after = this.panel.getBoundingClientRect();
+        if (before.width === after.width && before.height === after.height) return;
+        this.resizeAnimation?.cancel();
+        this.resizeAnimation = this.panel.animate(
+          [{ width: `${before.width}px`, height: `${before.height}px` }, { width: `${after.width}px`, height: `${after.height}px` }],
+          { duration: 220, easing: 'cubic-bezier(.2, .7, .2, 1)' },
+        );
       }
 
       showArticle(node, { loading = false } = {}) {
         const { page } = node;
-        this.panel.classList.add('open');
-        this.type.textContent = 'Wikipedia article';
+        this.open();
+        this.typeText.textContent = 'Wikipedia article';
         this.type.href = page.url ?? '#';
         this.type.title = 'Wikipediaで読む';
         this.type.setAttribute('aria-label', `Wikipediaで読む: ${page.title}`);
@@ -1618,8 +1648,8 @@
       }
 
       showCluster(node) {
-        this.panel.classList.add('open');
-        this.type.textContent = node.kind === 'cluster' ? 'Category constellation' : 'Other links';
+        this.open();
+        this.typeText.textContent = node.kind === 'cluster' ? 'Category constellation' : 'Other links';
         this.type.removeAttribute('href');
         this.type.removeAttribute('title');
         this.type.removeAttribute('aria-label');
@@ -1645,11 +1675,9 @@
         this.body.scrollTop = 0;
       }
 
-      // 通信状態の唯一の管理点。busy の間だけ最下段の背景色を変え、支援技術には aria-busy で伝える
+      // 通信状態の唯一の管理点。busy の間は上段・最下段の背景色と上段のドットで知らせ、支援技術には aria-busy で伝える
       setProgress(text, { busy = false } = {}) {
-        this.hint.replaceChildren();
-        if (busy) { const dot = document.createElement('i'); dot.className = 'busy'; this.hint.append(dot); }
-        this.hint.append(document.createTextNode(text));
+        this.hint.textContent = text;
         this.panel.classList.toggle('loading', busy);
         this.panel.setAttribute('aria-busy', String(busy));
       }
