@@ -56,7 +56,8 @@
       pointer-events: none;
       background: linear-gradient(to bottom, rgba(5,7,11,.9), rgba(5,7,11,.35) 70%, transparent);
     }
-    .brand { pointer-events: auto; display: flex; align-items: center; gap: 12px; min-width: 0; }
+    /* 隠し機能: クリックで全景と元の視点を切り替える。グリッド列いっぱいに広げず、ロゴと文字の幅だけを反応させる */
+    .brand { justify-self: start; pointer-events: auto; display: flex; align-items: center; gap: 12px; min-width: 0; cursor: pointer; }
     .brand-mark {
       width: 36px; height: 36px; border: 1px solid rgba(201,255,182,.4); border-radius: 50%;
       display: grid; place-items: center; color: var(--accent); font: 600 15px var(--serif);
@@ -461,6 +462,7 @@
         addInterval: 100,     // ノードを 1 つずつ出現させる間隔 (ms)
         focusDistance: 230,   // 選択ノードとカメラの距離
         focusDuration: 850,
+        overviewDuration: 1400,  // 全景 (全ノードを収める) との切り替えにかける時間 (ms)
         frameDelay: 2200,     // ノード追加が一段落してから自動フレーミングするまでの待ち (ms)
         frameMargin: 1.08,    // 自動フレーミングの余白 (1 = ぴったり)
         frameCoverage: .85,   // 自動フレーミングで画面に収める隣接ノード (新規・既存とも) の割合。遠い外れ値に引きずられてズームアウトしすぎないようにする
@@ -1026,6 +1028,7 @@
         this.userBusyUntil = 0;  // 利用者がグラフを操作している間は自動ズームアウトを割り込ませない
         this.autoRotated = 0;    // 今の選択で自動フレーミングが回転した角度の合計 (度)。上限を超えて回り続けない
         this.upFrame = null;     // 自動回転に合わせて camera.up を回すアニメーション
+        this.overview = null;    // 全景表示中なら、戻るための元のカメラ (position, target, up)
         this.autoFrameActive = false;  // 最後のカメラ移動が自動調整なら、収束後の寄せ直しを許可する
         this.raycaster = new THREE.Raycaster();
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -1501,6 +1504,7 @@
         this.graph.graphData({ nodes: [], links: [] });
         cancelAnimationFrame(this.upFrame);
         this.upFrame = null;
+        this.overview = null;
         this.graph.camera().up.set(0, 1, 0);
         this.graph.cameraPosition({ x: 0, y: 0, z: this.cfg.focusDistance }, { x: 0, y: 0, z: 0 }, 0);
       }
@@ -1596,6 +1600,7 @@
       // 現在の視線方向を保ったまま、カメラを選択ノードの手前まで移動する
       focus(node) {
         this.autoFrameActive = false;
+        this.overview = null;  // ノードを選び直したら全景は解除
         const camera = this.graph.cameraPosition();
         const direction = new THREE.Vector3(camera.x - node.x, camera.y - node.y, camera.z - node.z);
         if (direction.lengthSq() === 0) direction.set(0, 0, 1);
@@ -1607,20 +1612,25 @@
       // cameraPosition() は位置と注視点しか補間せず camera.up を置き去りにする。視線が変わるたびに up を同じ回転で回さないと、
       // 注視点の乗り換えや自動回転が重なるうちに up が視線と平行に近づき、TrackballControls の平行移動 (eye × up と up の方向)
       // が効かなくなったりズームに化けたりする。位置の補間 (Quadratic InOut) と同じ進み方で up を回し、終了時に視線と直交させる
-      moveCamera(target, view, distance, duration) {
+      moveCamera(target, view, distance, duration, { finalUp = null } = {}) {
         const camera = this.graph.camera();
         const position = camera.position;
         const previousView = position.clone().sub(this.graph.controls().target);
-        if (previousView.lengthSq() > 0) this.rotateCameraUp(camera, previousView.normalize(), view, duration);
+        if (previousView.lengthSq() > 0) this.rotateCameraUp(camera, previousView.normalize(), view, duration, finalUp);
         const offset = view.clone().multiplyScalar(distance);
         this.graph.cameraPosition({ x: target.x + offset.x, y: target.y + offset.y, z: target.z + offset.z }, target, duration);
       }
 
-      rotateCameraUp(camera, fromView, toView, duration) {
+      rotateCameraUp(camera, fromView, toView, duration, finalUp = null) {
         cancelAnimationFrame(this.upFrame);
         const rotation = new THREE.Quaternion().setFromUnitVectors(fromView, toView);
         const from = camera.up.clone();
-        const settle = () => { camera.up.copy(from).applyQuaternion(rotation).projectOnPlane(toView).normalize(); this.upFrame = null; };
+        const settle = () => {
+          if (finalUp) camera.up.copy(finalUp);
+          else camera.up.copy(from).applyQuaternion(rotation);
+          camera.up.projectOnPlane(toView).normalize();
+          this.upFrame = null;
+        };
         if (!duration || fromView.distanceToSquared(toView) < 1e-8) { settle(); return; }
         const start = performance.now();
         const identity = new THREE.Quaternion();
@@ -1632,6 +1642,32 @@
           else settle();
         };
         this.upFrame = requestAnimationFrame(tick);
+      }
+
+      // ---- 全景 ---------------------------------------------------------
+
+      // 隠し機能: 全ノードが収まる全景と、直前の視点をトグルする。全景中はノードを選び直すまで自動フレーミングを止める
+      toggleOverview() {
+        if (this.nodes.length === 0) return;
+        const camera = this.graph.camera();
+        const duration = this.reducedMotion.matches ? 0 : this.cfg.overviewDuration;
+        if (this.overview) {
+          const { position, target, up } = this.overview;
+          this.overview = null;
+          const view = position.clone().sub(target);
+          this.moveCamera(target, view.clone().normalize(), view.length(), duration, { finalUp: up });
+          return;
+        }
+        this.autoFrameActive = false;
+        this.overview = { position: camera.position.clone(), target: this.graph.controls().target.clone(), up: camera.up.clone() };
+        const box = new THREE.Box3();
+        for (const node of this.nodes) box.expandByPoint(new THREE.Vector3(node.x ?? 0, node.y ?? 0, node.z ?? 0));
+        const center = box.getCenter(new THREE.Vector3());
+        const view = camera.position.clone().sub(this.graph.controls().target);
+        if (view.lengthSq() === 0) view.set(0, 0, 1);
+        view.normalize();
+        const distance = this.neededDistance(center, this.nodes, view, camera, { coverage: 1 });
+        this.moveCamera(center, view, distance, duration);
       }
 
       // ---- 自動ズームアウト ---------------------------------------------
@@ -1658,6 +1694,7 @@
       // 動く必要があるときは、視線を少し回して必要距離が大きく縮む向きがあればそちらへ回りながら動く
       frameSelection({ allowZoomIn = false } = {}) {
         if (allowZoomIn && !this.autoFrameActive) return;  // 自動移動後に利用者が触った場合は補正しない
+        if (this.overview) return;  // 全景中は視点を動かさない
         const center = this.focused ?? this.selected;
         if (!center || this.nodes.length < 2) return;
         if (this.userBusyUntil > Date.now()) { this.scheduleFrame({ allowZoomIn }); return; }  // 手動操作中は後回し
@@ -1726,7 +1763,7 @@
 
       // 視線 view (中心からカメラへの単位ベクトル) で見たとき、targets の frameCoverage 割合が画面に収まるカメラ距離。
       // 画面の傾き (camera.up) は変えず、上下の余白のうち大きいほうを両側から除いた帯を有効な視野とみなす
-      neededDistance(center, targets, view, camera) {
+      neededDistance(center, targets, view, camera, { coverage = this.cfg.frameCoverage } = {}) {
         const forward = view.clone().negate();
         const up = camera.up.clone().projectOnPlane(forward);
         if (up.lengthSq() < 1e-6) up.set(0, 1, 0).projectOnPlane(forward);
@@ -1745,7 +1782,7 @@
           const height = (Math.abs(offset.dot(up)) + this.cfg.framePadding) * this.cfg.frameMargin;
           return Math.max(width / tanH - depthOffset, height / tanV - depthOffset);
         }).sort((a, b) => a - b);
-        const rank = Math.min(distances.length, Math.max(1, Math.ceil(distances.length * this.cfg.frameCoverage)));
+        const rank = Math.min(distances.length, Math.max(1, Math.ceil(distances.length * coverage)));
         return Math.max(this.cfg.focusDistance, distances[rank - 1]);
       }
     }
@@ -2243,6 +2280,7 @@
         this.detail = new DetailPanel({ onPickMember: (page) => this.selectArticle(page), onPickParent: (star) => this.selectArticle(star.page) });
         this.history = new HistoryNav({ onMove: (id) => this.revisit(this.graph.get(id)) });
         this.starfield = new Starfield($('#starfield'), CONFIG.starfield);
+        $('.brand').addEventListener('click', () => this.graph.toggleOverview());  // 隠し機能: 全景と元の視点のトグル
         this.current = null;         // 選択中の記事ノード
         this.controller = null;      // バックグラウンド収集の中断用
         this.runId = 0;              // 収集 run の識別子。古い run の結果は捨てる
