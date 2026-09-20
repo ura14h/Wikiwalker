@@ -210,17 +210,22 @@
     }
     .member-list button::before { content: "·"; margin-right: 8px; color: var(--accent); }
     .member-list button:hover { color: var(--accent); }
-    .detail-foot { display: flex; align-items: center; gap: 10px; padding: 12px 20px 15px; border-top: 1px solid var(--line); transition: background-color .25s, border-color .25s; }
-    /* 通信中は上段と最下段の背景色を変えて知らせる。点滅ドットは折りたたみ中でも見える上段の種別ラベル横に置く */
-    .detail.loading :is(.detail-head, .detail-foot) { background: rgba(127,227,205,.16); border-color: rgba(127,227,205,.55); }
-    .detail.loading .detail-hint { color: var(--ink); }
-    .detail-busy { display: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); animation: pulse 1.4s ease-in-out infinite; flex: none; }
+    /* 通信中は上段の背景色と、折りたたみ中でも見える種別ラベル横の回転リングで知らせる */
+    .detail.loading .detail-head { background: rgba(127,227,205,.16); border-color: rgba(127,227,205,.55); }
+    .detail-busy { display: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(127,227,205,.22); border-top-color: var(--accent-2); animation: spin .8s linear infinite; flex: none; }
     .detail.loading .detail-busy { display: block; }
-    .detail-hint { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: left; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* 本文の最下段に置く集計。項目は固定で数字だけ差し替わるので、収集の進行で高さが変わらない */
+    .detail-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 8px; margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+    .detail-stats div { display: flex; flex-direction: column; justify-content: end; min-width: 0; }
+    .detail-stats dt { color: var(--faint); font-size: 10.5px; line-height: 1.35; letter-spacing: .04em; }
+    .detail-stats dd { margin: 3px 0 0; color: var(--ink); font: 500 15px/1.2 var(--serif); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .detail-stats-note { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 12px; }
+    .detail-stats-note:empty { display: none; }
     .detail.collapsed .detail-head { padding: 8px 8px 8px 20px; border-bottom: 0; }
     .detail.collapsed .detail-meta { margin: 0; }
     .detail.collapsed .detail-toggle svg { transform: rotate(180deg); }
-    .detail.collapsed :is(h2, .detail-categories, .detail-body, .detail-foot) { display: none; }
+    .detail.collapsed :is(h2, .detail-categories, .detail-body) { display: none; }
 
     /* ---- 権利表示 ------------------------------------------------------ */
     .attribution {
@@ -337,15 +342,17 @@
             </a>
             <i class="detail-busy" id="detailBusy" aria-hidden="true"></i>
           </span>
-          <button class="detail-toggle" id="detailToggle" type="button" aria-controls="detailTitle detailCategories detailBody detailFoot" aria-expanded="true" aria-label="詳細を閉じる" title="詳細を閉じる">
+          <button class="detail-toggle" id="detailToggle" type="button" aria-controls="detailTitle detailCategories detailBody" aria-expanded="true" aria-label="詳細を閉じる" title="詳細を閉じる">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
           </button>
         </div>
         <h2 id="detailTitle"></h2>
         <div class="detail-categories" id="detailCategories"></div>
       </div>
-      <div class="detail-body" id="detailBody"></div>
-      <div class="detail-foot" id="detailFoot"><span class="detail-hint" id="detailHint"></span></div>
+      <div class="detail-body" id="detailBody">
+        <div id="detailContent"></div>
+        <dl class="detail-stats" id="detailStats"></dl>
+      </div>
     </aside>
 
     <div class="legend" id="legend" aria-hidden="true">
@@ -1639,7 +1646,9 @@
         this.title = $('#detailTitle');
         this.categories = $('#detailCategories');
         this.body = $('#detailBody');
-        this.hint = $('#detailHint');
+        this.content = $('#detailContent');
+        this.stats = $('#detailStats');
+        this.shown = null;  // 表示中のノード。背景の収集が別のノードの集計を書き込まないようにする
         this.credit = $('#wikipediaCredit');
         this.collapsed = false;
         this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅
@@ -1679,6 +1688,7 @@
       showArticle(node, { loading = false } = {}) {
         const { page } = node;
         this.open();
+        this.shown = node;
         this.typeText.textContent = 'Wikipedia article';
         this.type.href = page.url ?? '#';
         this.type.title = 'Wikipediaで読む';
@@ -1688,19 +1698,20 @@
         if (page.extract) {
           const p = document.createElement('p');
           p.textContent = page.extract;
-          this.body.replaceChildren(p);
+          this.content.replaceChildren(p);
         } else if (loading) {
           const skeleton = document.createElement('div');
           skeleton.className = 'skeleton';
           skeleton.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
-          this.body.replaceChildren(skeleton);
+          this.content.replaceChildren(skeleton);
         } else {
           const p = document.createElement('p');
           p.textContent = 'このページには表示できる概要がありません。';
-          this.body.replaceChildren(p);
+          this.content.replaceChildren(p);
         }
+        this.articleStats(node);
         this.body.scrollTop = 0;
-        if (loading) this.setProgress('記事を取得しています…', { busy: true });
+        this.setBusy(loading);
 
         // 権利表示: 表示中の記事へのリンクを常時掲示する
         this.credit.textContent = `Wikipedia「${page.title}」`;
@@ -1709,6 +1720,7 @@
 
       showCluster(node) {
         this.open();
+        this.shown = node;
         this.typeText.textContent = node.kind === 'cluster' ? 'Category constellation' : 'Other links';
         this.type.removeAttribute('href');
         this.type.removeAttribute('title');
@@ -1731,23 +1743,52 @@
           item.append(button);
           list.append(item);
         }
-        this.body.replaceChildren(p, list);
+        this.content.replaceChildren(p, list);
+        const shown = node.expanded ? Math.min(node.members.length, CONFIG.related.expandLimit) : 0;
+        this.setStats([['記事', node.members.length], ['グラフに表示', shown]]);
         this.body.scrollTop = 0;
       }
 
-      // 通信状態の唯一の管理点。busy の間は上段・最下段の背景色と上段のドットで知らせ、支援技術には aria-busy で伝える
-      setProgress(text, { busy = false } = {}) {
-        this.hint.textContent = text;
+      // 通信状態の唯一の管理点。busy の間は上段の背景色と回転リングで知らせ、支援技術には aria-busy で伝える
+      setBusy(busy) {
         this.panel.classList.toggle('loading', busy);
         this.panel.setAttribute('aria-busy', String(busy));
       }
 
+      // 記事の集計 (カテゴリ = 星団数、その他 = 星団に入らなかった記事数、出リンク、被リンク)。
+      // 未取得の項目は — にして、収集の進行に合わせて数字だけ差し替える
+      articleStats(node, note = '') {
+        if (node !== this.shown) return;
+        const stats = node.stats ?? {};
+        const num = (n) => (n == null ? '—' : n.toLocaleString());
+        const out = stats.out == null ? '—' : `${num(stats.out)}${stats.outTruncated ? '+' : ''}`;
+        const inbound = stats.in == null ? '—' : stats.in.total > stats.in.sampled ? `約 ${num(stats.in.total)}` : num(stats.in.total);
+        this.setStats([['カテゴリ', num(stats.clusters)], ['その他', num(stats.pool)], ['出リンク', out], ['被リンク', inbound]], note);
+      }
+
+      setStats(entries, note = '') {
+        const items = entries.map(([label, value]) => {
+          const item = document.createElement('div');
+          const dt = document.createElement('dt');
+          const dd = document.createElement('dd');
+          dt.textContent = label;
+          dd.textContent = value;
+          item.append(dt, dd);
+          return item;
+        });
+        const p = document.createElement('p');
+        p.className = 'detail-stats-note';
+        p.textContent = note;
+        this.stats.replaceChildren(...items, p);
+      }
+
       // 記事詳細の取得に失敗したとき: スケルトンを消し、通信中表示を解除する
-      showArticleError() {
+      showArticleError(node) {
         const p = document.createElement('p');
         p.textContent = '記事の概要を取得できませんでした。';
-        this.body.replaceChildren(p);
-        this.setProgress('記事の取得に失敗しました');
+        this.content.replaceChildren(p);
+        this.articleStats(node, '記事の取得に失敗しました');
+        this.setBusy(false);
       }
 
       // 記事未選択のときの権利表示 (言語版のトップへ)
@@ -1928,7 +1969,7 @@
         } catch (error) {
           if (isAbort(error)) return;
           this.status.notice(error.message, { error: true, hideAfter: 4500 });
-          if (node && runId === this.runId) this.detail.showArticleError();
+          if (node && runId === this.runId) this.detail.showArticleError(node);
           return;
         }
         if (runId !== this.runId) return;
@@ -1941,7 +1982,8 @@
           if (node.run === runId) node.expanded = false;  // 中断・失敗した収集は次に選択したとき再開する
           if (!isAbort(error) && runId === this.runId) {
             this.status.notice('関連記事の取得に失敗しました', { error: true, hideAfter: 3500 });
-            this.detail.setProgress('関連記事の取得に失敗しました');
+            this.detail.articleStats(node, '関連記事の取得に失敗しました');
+            this.detail.setBusy(false);
           }
         });
       }
@@ -1970,11 +2012,12 @@
       // ---- 関連記事の収集 (バックグラウンド) ------------------------------
 
       async collectRelated(node, runId, signal) {
-        if (node.expanded) { this.detail.setProgress(node.summary ?? '探索済み'); return; }
+        if (node.expanded) { this.detail.setBusy(false); return; }
         node.expanded = true;
         node.run = runId;
+        node.stats = {};  // 集計は詳細パネルの最下段に出す。中断して再開したときは取り直す
         this.graph.refreshStyles();
-        this.detail.setProgress('関連記事を収集しています…', { busy: true });
+        this.detail.setBusy(true);
 
         const aggregator = new RelatedAggregator(CONFIG.related);
         aggregator.exclude(node.page.pageid);
@@ -1990,12 +2033,8 @@
         }
         for (const cluster of aggregator.addCandidates(similar.slice(direct.length))) this.syncCluster(node, cluster, depth);
         this.syncPool(node, aggregator, depth);
-        this.detail.setProgress(
-          direct.length
-            ? `類似記事 ${direct.length} 件。出リンクを集約しています…`
-            : '類似記事は見つかりませんでした。出リンクを集約しています…',
-          { busy: true },
-        );
+        Object.assign(node.stats, { clusters: aggregator.clusters.size, pool: aggregator.pool.length });
+        this.detail.articleStats(node);
 
         // 2. 出リンク (この記事が説明に使うもの) と被リンクの標本 (この記事を使う側: 応用・具体例・関係人物) を
         //    同じ歩幅で交互に集約する。星団の枠 (maxClusters) は先着順に埋まるので、片方を先に流し切ると
@@ -2012,14 +2051,16 @@
           for (const page of pages) page.via = via;
           for (const cluster of aggregator.addCandidates(pages)) this.syncCluster(node, cluster, depth);
           this.syncPool(node, aggregator, depth);
-          this.detail.setProgress(`出リンク ${counts.out} 件・被リンク ${counts.in} 件を確認。星団 ${aggregator.clusters.size} 個`, { busy: true });
+          Object.assign(node.stats, { clusters: aggregator.clusters.size, pool: aggregator.pool.length, out: counts.out });
+          if (backlinks.total != null) node.stats.in = { total: backlinks.total, sampled: backlinks.sampled };
+          this.detail.articleStats(node);
         }
         if (runId !== this.runId) return;
 
-        const truncated = counts.out >= CONFIG.related.linkBatch * CONFIG.related.maxLinkRequests ? '（先頭のみ）' : '';
-        const backlinkNote = backlinks.total > backlinks.sampled ? `約 ${backlinks.total.toLocaleString()} 件（${backlinks.sampled} 件を抽出）` : `${backlinks.total ?? 0} 件`;
-        node.summary = `探索済み ・ 直接 ${direct.length} / 星団 ${aggregator.clusters.size} / その他 ${aggregator.pool.length} ・ 出リンク ${counts.out} 件${truncated} / 被リンク ${backlinkNote}`;
-        this.detail.setProgress(node.summary);
+        node.stats.outTruncated = counts.out >= CONFIG.related.linkBatch * CONFIG.related.maxLinkRequests;  // 先頭のみ
+        node.stats.in ??= { total: 0, sampled: 0 };
+        this.detail.articleStats(node);
+        this.detail.setBusy(false);
       }
 
       syncCluster(parent, cluster, depth) {
@@ -2043,14 +2084,14 @@
       openCluster(node, { fromHistory = false } = {}) {
         this.graph.inspect(node);
         this.graph.focus(node);
-        this.detail.showCluster(node);
         if (!fromHistory) this.history.push(node.id);
-        this.detail.setProgress(node.expanded ? '展開済み' : `${node.members.length} 件のうち ${Math.min(node.members.length, CONFIG.related.expandLimit)} 件を展開`);
-        if (node.expanded) return;
-        node.expanded = true;
-        for (const page of node.members.slice(0, CONFIG.related.expandLimit)) {
-          this.graph.add(Wikiwalker.articleNode(page, node.depth + 1), node, 'member');
+        if (!node.expanded) {
+          node.expanded = true;
+          for (const page of node.members.slice(0, CONFIG.related.expandLimit)) {
+            this.graph.add(Wikiwalker.articleNode(page, node.depth + 1), node, 'member');
+          }
         }
+        this.detail.showCluster(node);
       }
     }
 
