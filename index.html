@@ -395,7 +395,10 @@
         focusDuration: 850,
         frameDelay: 2200,     // ノード追加が一段落してから自動フレーミングするまでの待ち (ms)
         frameMargin: 1.08,    // 自動フレーミングの余白 (1 = ぴったり)
+        frameCoverage: .85,   // 自動フレーミングで画面に収める近隣ノードの割合。遠い外れ値に引きずられてズームアウトしすぎないようにする
         framePadding: 8,      // ノードの半径とラベル分の余白 (空間単位)
+        // 画面に重なる UI。自動フレーミングではこれらが覆う上下の帯を描画領域から除外して、ノードが隠れないようにする
+        frameObstacles: { top: '.topbar', bottom: '.attribution, .controls-hint' },
         hitRadius: 8.5,       // 見た目を変えずにクリックしやすくする最小当たり半径
         clickTolerance: 6,    // この移動量 (px) までは手ぶれとしてクリックを許容する
         relatedBrightness: .42, // 選択ノードに直結するノードを霧の中から少し浮かせる
@@ -778,6 +781,7 @@
     class GraphView {
       constructor(container, { onNodeClick }) {
         this.cfg = CONFIG.graph;
+        this.container = container;
         this.nodes = [];
         this.links = [];
         this.byId = new Map();
@@ -792,6 +796,7 @@
         this.frameTimer = null;
         this.userBusyUntil = 0;  // 利用者がグラフを操作している間は自動ズームアウトを割り込ませない
         this.autoFrameActive = false;  // 最後のカメラ移動が自動調整なら、収束後の寄せ直しを許可する
+        this.freshIds = new Set();  // 今の選択以降に出現したノード。自動フレーミングはこれらを優先して収める
         this.raycaster = new THREE.Raycaster();
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         this.glowTexture = this.createGlowTexture();
@@ -1146,6 +1151,7 @@
         this.focused = null;
         this.hovered = null;
         this.relatedIds.clear();
+        this.freshIds.clear();
         this.animatingLabels.clear();
         if (this.hoverFrame) cancelAnimationFrame(this.hoverFrame);
         this.hoverFrame = null;
@@ -1185,6 +1191,7 @@
         const origin = parent ?? { x: 0, y: 0, z: 0 };
         Object.assign(node, { x: origin.x, y: origin.y, z: origin.z });
         this.nodes.push(node);
+        this.freshIds.add(node.id);
         if (parent) this.links.push({ source: parent.id, target: node.id, kind });
         if (parent?.id === this.selected?.id) this.relatedIds.add(node.id);
         else if (node.id === this.selected?.id && parent) this.relatedIds.add(parent.id);
@@ -1218,6 +1225,7 @@
         if (this.selected) { delete this.selected.fx; delete this.selected.fy; delete this.selected.fz; }
         this.focused = null;
         this.selected = node;
+        this.freshIds.clear();
         if (node) {
           this.animatingLabels.delete(node);
           delete node.__labelAnimation;
@@ -1231,6 +1239,7 @@
       inspect(node) {
         if (this.focused) { delete this.focused.fx; delete this.focused.fy; delete this.focused.fz; }
         this.focused = node;
+        this.freshIds.clear();
         if (node) {
           this.animatingLabels.delete(node);
           delete node.__labelAnimation;
@@ -1252,13 +1261,26 @@
 
       // ---- 自動ズームアウト ---------------------------------------------
 
+      // 画面に重なる UI (検索バー・権利表示・操作ガイド) が描画領域の上下を何 px 覆っているかを実測する
+      viewInsets() {
+        const view = this.container.getBoundingClientRect();
+        const rects = (selector) => [...document.querySelectorAll(selector)]
+          .map((element) => element.getBoundingClientRect())
+          .filter((rect) => rect.width > 0 && rect.height > 0);  // display:none の要素は無視
+        const top = Math.max(0, ...rects(this.cfg.frameObstacles.top).map((rect) => rect.bottom - view.top));
+        const bottom = Math.max(0, ...rects(this.cfg.frameObstacles.bottom).map((rect) => view.bottom - rect.top));
+        return { top, bottom, height: Math.max(1, view.height) };
+      }
+
       // ノード追加のたびにカメラを動かすと画面が揺れるので、追加が一段落してから 1 度だけ調整する
       scheduleFrame({ allowZoomIn = false } = {}) {
         clearTimeout(this.frameTimer);
         this.frameTimer = setTimeout(() => this.frameSelection({ allowZoomIn }), this.cfg.frameDelay);
       }
 
-      // カメラ平面へ投影した実寸から、選択ノードと直接隣接ノードが収まる最短距離を求める
+      // カメラ平面へ投影した実寸から、選択ノードと直接隣接ノードが収まる最短距離を求める。
+      // 既存ノード同士が結び付いて遠くの隣接ノードが増えても引きずられないよう、
+      // 選択後に新しく出現した隣接ノードを優先し、その frameCoverage 割合が収まる距離で止める
       frameSelection({ allowZoomIn = false } = {}) {
         if (allowZoomIn && !this.autoFrameActive) return;  // 自動移動後に利用者が触った場合は補正しない
         const center = this.focused ?? this.selected;
@@ -1271,23 +1293,29 @@
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
         const halfV = THREE.MathUtils.degToRad(camera.fov / 2);
         const halfH = Math.atan(Math.tan(halfV) * camera.aspect);
-        const tanV = Math.tan(halfV);
+        // 注視点は画面中央に置いたままなので、上下の余白のうち大きいほうを両側から除いた帯を有効な視野とみなす
+        const insets = this.viewInsets();
+        const visibleV = Math.max(.2, 1 - 2 * Math.max(insets.top, insets.bottom) / insets.height);
+        const tanV = Math.tan(halfV) * visibleV;
         const tanH = Math.tan(halfH);
-        let needed = 0;
-        let found = false;
+        const neighbors = [];
         for (const link of this.links) {
           const a = linkEnd(link.source), b = linkEnd(link.target);
           const other = a === center.id ? this.byId.get(b) : b === center.id ? this.byId.get(a) : null;
-          if (!other) continue;
-          found = true;
+          if (other) neighbors.push(other);
+        }
+        if (neighbors.length === 0) { if (allowZoomIn) this.autoFrameActive = false; return; }
+        const fresh = neighbors.filter((node) => this.freshIds.has(node.id));
+        const targets = fresh.length ? fresh : neighbors;
+        const distances = targets.map((other) => {
           const offset = new THREE.Vector3(other.x - center.x, other.y - center.y, other.z - center.z);
           const depthOffset = offset.dot(forward);
           const width = (Math.abs(offset.dot(right)) + this.cfg.framePadding) * this.cfg.frameMargin;
           const height = (Math.abs(offset.dot(up)) + this.cfg.framePadding) * this.cfg.frameMargin;
-          needed = Math.max(needed, width / tanH - depthOffset, height / tanV - depthOffset);
-        }
-        if (!found) { if (allowZoomIn) this.autoFrameActive = false; return; }
-        needed = Math.max(this.cfg.focusDistance, needed);
+          return Math.max(width / tanH - depthOffset, height / tanV - depthOffset);
+        }).sort((a, b) => a - b);
+        const rank = Math.min(distances.length, Math.max(1, Math.ceil(distances.length * this.cfg.frameCoverage)));
+        const needed = Math.max(this.cfg.focusDistance, distances[rank - 1]);
 
         const position = this.graph.cameraPosition();
         const direction = new THREE.Vector3(position.x - center.x, position.y - center.y, position.z - center.z);
