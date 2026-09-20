@@ -189,9 +189,9 @@
     }
     .legend.visible { opacity: 1; }
     .legend-row { display: flex; align-items: center; gap: 8px; }
-    .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px currentColor; }
-    .legend-dot.cluster { background: var(--warm); box-shadow: 0 0 0 2px var(--space), 0 0 0 3px var(--warm); width: 5px; height: 5px; margin: 0 1px; }
-    .legend-dot.pool { background: #86d98d; box-shadow: 0 0 0 2px var(--space), 0 0 0 3px #86d98d; width: 5px; height: 5px; margin: 0 1px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; background: #ffd48a; box-shadow: 0 0 9px #ffd48a; }
+    .legend-dot.cluster { width: 5px; height: 5px; margin: 0 1.5px; background: #9cc1ff; box-shadow: none; }
+    .legend-dot.pool { width: 5px; height: 5px; margin: 0 1.5px; background: #7fdbe0; box-shadow: 0 0 0 2px var(--space), 0 0 0 3px #7fdbe0; }
 
     .controls-hint {
       position: absolute; z-index: 5; left: 50%; bottom: 20px; transform: translateX(-50%);
@@ -386,8 +386,8 @@
     </aside>
 
     <div class="legend" id="legend" aria-hidden="true">
-      <div class="legend-row"><i class="legend-dot"></i><span>記事星</span></div>
-      <div class="legend-row"><i class="legend-dot cluster"></i><span>星団（共通カテゴリで集約）</span></div>
+      <div class="legend-row"><i class="legend-dot"></i><span>記事</span></div>
+      <div class="legend-row"><i class="legend-dot cluster"></i><span>共通カテゴリの関連記事</span></div>
       <div class="legend-row"><i class="legend-dot pool"></i><span>その他の関連記事</span></div>
     </div>
 
@@ -426,14 +426,14 @@
       // 関連記事の収集と集約
       related: {
         similarLimit: 20,    // morelike 検索で取る類似記事数
-        directMax: 10,       // 類似記事のうち直接ノードにする上限 (残りは星団へ)
+        directMax: 10,       // 類似記事のうち直接ノードにする上限 (残りは惑星へ)
         linkBatch: 50,       // generator=links の 1 回あたり件数
         maxLinkRequests: 6,  // 出リンク列挙の上限リクエスト数 (最大 300 リンク)
         backlinkSample: 100, // 被リンクは全数ではなく無作為標本をこの件数だけ集約に加える (要求 1 + 属性 2 回)
         pageBatch: 50,       // pageids 指定で属性を引くときの 1 回あたり件数 (API の上限)
-        minClusterSize: 3,   // これ以上の記事が同じカテゴリを共有すれば星団にする
-        maxClusters: 12,     // 星団の上限。超過分は「その他」へ
-        expandLimit: 16,     // 星団を開いたときにグラフへ出す記事数
+        minClusterSize: 3,   // これ以上の記事が同じカテゴリを共有すれば惑星にする
+        maxClusters: 12,     // 惑星の上限。超過分は「その他」へ
+        expandLimit: 16,     // 惑星を開いたときにグラフへ出す記事数
         // 集約に向かないカテゴリ (汎用すぎるもの・非表示指定のない保守用カテゴリ)
         ignoredCategories: [/^存命人物$/, /^Living people$/, /ページ$/, /出典|参照|識別子|曖昧さ|ウィキペディア|CS1|Webarchive/i, /^(Pages|Articles) /],
       },
@@ -464,7 +464,9 @@
         // 通常 2〜10 秒かかる。1 回 2 秒台の小さな回転はその手前に収まる
         frameRotateMax: 24,       // 選択ごとの回転角の上限 (度)
         frameRotateSpeed: 10,     // 回転の平均角速度 (度/秒)。角度に応じて移動時間を延ばす
-        frameRotateGain: .12,     // 回転する条件: 必要距離がこの割合以上縮むとき
+        frameRotateGain: .12,     // 回転する条件: 評価値 (必要距離 × 混雑の割増) がこの割合以上下がるとき
+        frameCrowdRadius: 26,     // 視線軸からこの距離 (空間単位) 以内の隣接ノードは、選択ノードとそのラベルに重なるとみなす
+        frameCrowdWeight: .2,     // 重なる隣接ノード 1 個あたりの評価値の割増
         framePadding: 8,      // ノードの半径とラベル分の余白 (空間単位)
         // 画面に重なる UI。自動フレーミングではこれらが覆う上下の帯を描画領域から除外して、ノードが隠れないようにする
         frameObstacles: { top: '.topbar', bottom: '.attribution, .controls-hint' },
@@ -473,11 +475,23 @@
         relatedBrightness: .42, // 選択ノードに直結するノードを霧の中から少し浮かせる
         hoverLabelScale: 1.32,  // ホバー時に保証する見かけサイズの通常ラベル比
         hoverLabelMaxScale: 3, // 遠方ラベルの拡大上限
+        // すべてのラベルに掛ける距離補正。カメラからの深度が focusDistance の何倍かの labelDepthPower 乗だけ拡大し、
+        // 遠いラベルの見かけの縮小を和らげる (1 なら見かけの大きさが一定、0 なら補正なし)
+        labelDepthPower: .6,
+        labelMaxScale: 2.2,
         hoverDuration: 100,    // ホバーラベルの拡縮が完了するまでの時間 (ms)
-        palette: ['#eaffdf', '#8edfc5', '#a7c7ff', '#dab5ff', '#f2d18e', '#91d6ef'],  // 深さごとの記事星の色
-        clusterColor: '#f3c887',
-        poolColor: '#86d98d',  // 星団の暖色・記事星のミントと色相が重ならない葉の緑
+        // 恒星 (記事) は暖色。先頭は選択中の白熱色、以降は探索深度で巡回する
+        palette: ['#fff6df', '#ffd48a', '#ffb866', '#ff9d7a', '#f5c56e', '#ffc9a0'],
+        clusterColor: '#9cc1ff',  // 惑星 (共通カテゴリ): 寒色
+        poolColor: '#7fdbe0',     // 環のある惑星 (その他): 寒色
         fogNear: 80, fogFar: 600, baseOpacity: .9, minOpacity: .36,
+        // 恒星系の配置。惑星は恒星を囲む球殻に等間隔で散らばり (デブリの軌道のように立体的)、恒星同士は惑星軌道より長い辺で離す
+        orbitRadius: 44,        // 惑星の軌道半径 (惑星が orbitBaseCount を超えると面積に応じて広がる)
+        orbitBaseCount: 8,      // この個数までは orbitRadius に収める
+        orbitStrength: .38,     // 惑星をスロットへ引き寄せる強さ
+        starDistance: 135,      // 恒星–恒星 (類似記事、展開した記事) の辺の長さ。惑星の軌道 (44〜64) の 2 倍以上
+        starCharge: -140,       // 恒星の反発
+        planetCharge: -12,      // 惑星の反発 (間隔は軌道が作るので弱く)
       },
 
       // Site matrix を読み込むまでの暫定言語表と、一覧で先頭に出す主要言語
@@ -807,24 +821,24 @@
     };
 
     // =====================================================================
-    // 意味変換: 関連記事を「直接ノード」「星団 (カテゴリ集約)」「その他」へ振り分ける
+    // 意味変換: 関連記事を「直接ノード」「惑星 (カテゴリ集約)」「その他」へ振り分ける
     // =====================================================================
 
     // 決定論的な集約器。同じ順序で同じ候補を与えれば同じ結果になる。
-    //   1. 既存の星団に入れられる候補は、メンバー数が最大の星団へ入れる
-    //   2. 残りの候補から、共有メンバー数が最大のカテゴリを順に星団化する
+    //   1. 既存の惑星に入れられる候補は、メンバー数が最大の惑星へ入れる
+    //   2. 残りの候補から、共有メンバー数が最大のカテゴリを順に惑星化する
     //   3. どこにも入らなかった候補は「その他」プールに置く
     class RelatedAggregator {
       constructor({ minClusterSize, maxClusters, ignoredCategories }) {
         Object.assign(this, { minClusterSize, maxClusters, ignoredCategories });
         this.clusters = new Map();  // カテゴリ名 → { category, members[] }
-        this.pool = [];             // 星団に入らなかった記事
+        this.pool = [];             // 惑星に入らなかった記事
         this.seen = new Set();      // 処理済み pageid
       }
 
       exclude(pageid) { this.seen.add(pageid); }
 
-      // 候補を追加し、影響のあった星団の一覧を返す
+      // 候補を追加し、影響のあった惑星の一覧を返す
       addCandidates(pages) {
         const fresh = pages.filter((page) => !this.seen.has(page.pageid) && !page.missing && !page.disambiguation).sort(byTitle);
         fresh.forEach((page) => this.seen.add(page.pageid));
@@ -850,7 +864,7 @@
         return best;
       }
 
-      // プールの中で共有数の多いカテゴリから順に星団を切り出す
+      // プールの中で共有数の多いカテゴリから順に惑星を切り出す
       formClusters() {
         const formed = [];
         while (this.clusters.size < this.maxClusters) {
@@ -986,7 +1000,7 @@
     // 表示: 3D グラフ (Wikipedia 宇宙)
     // =====================================================================
 
-    // ノードの種類: article (記事星) / cluster (星団) / pool (その他)
+    // ノードの種類: article (恒星 = 記事) / cluster (惑星 = 共通カテゴリで集約した関連記事) / pool (環のある惑星 = その他の関連記事)
     class GraphView {
       constructor(container, { onNodeClick }) {
         this.cfg = CONFIG.graph;
@@ -1018,23 +1032,27 @@
           .enableNodeDrag(false)
           .nodeLabel(() => '')  // 標準ツールチップではなく、ノード上のラベルを強調する
           .nodeThreeObject((node) => this.createNodeObject(node))
-          // 辺の由来: similar (morelike の類似) / cluster (出リンクの集約) / member (星団の展開)
+          // 辺の由来: similar (morelike の類似) / cluster (恒星と惑星) / member (惑星の展開)
           .linkColor((link) => this.linkColor(link))
           .linkWidth((link) => this.linkWidth(link))
           .linkOpacity(.85)
           .d3VelocityDecay(.62)  // 動きを減衰させてレイアウトの揺れを抑える
           .cooldownTime(9000)
-          .onEngineTick(() => this.updateFog())
+          .onEngineTick(() => { this.updateFog(); this.updateLabelScales(); })
           .onEngineStop(() => { if (this.autoFrameActive) this.frameSelection({ allowZoomIn: true }); })
           .onNodeHover((node) => this.setHovered(node, container));
 
         // TrackballControls 標準の D＋ドラッグを、既存ガイドどおり Shift＋左ドラッグの平行移動へ置き換える。
         const controls = this.graph.controls();
         controls.keys[2] = 'ShiftLeft';
-        controls.addEventListener('change', () => this.updateSelectedLabelScale());
+        controls.addEventListener('change', () => this.updateLabelScales());
 
-        this.graph.d3Force('charge').strength((node) => (node.kind === 'article' ? -125 : -90));
-        this.graph.d3Force('link').distance((link) => (link.kind === 'similar' ? 95 : 75));
+        // 恒星系の配置: 恒星–惑星の辺は軌道半径、恒星–恒星の辺は長く。惑星の間隔は軌道スロットが作る
+        this.graph.d3Force('charge').strength((node) => (node.kind === 'article' ? this.cfg.starCharge : this.cfg.planetCharge));
+        this.graph.d3Force('link')
+          .distance((link) => (link.kind === 'cluster' ? (linkEnd(link.target) && this.byId.get(linkEnd(link.target))?.__orbitRadius) ?? this.cfg.orbitRadius : this.cfg.starDistance))
+          .strength((link) => (link.kind === 'cluster' ? .15 : .6));
+        this.graph.d3Force('orbit', this.orbitForce());
         this.resize();
         this.installNodeActivation(onNodeClick);
         window.addEventListener('resize', () => this.resize());
@@ -1099,6 +1117,60 @@
         return new THREE.CanvasTexture(canvas);
       }
 
+      // 惑星を親の恒星を囲む球殻のスロットへ引き寄せる力。軌道面を持たず、球面に等間隔 (フィボナッチ球) で散らばるので
+      // どの向きから見ても一列に重ならない。恒星ごとに球の向きを変え、惑星が増えたら面積が足りるよう半径を広げる。
+      // 軌道半径は辺の長さにも反映し、リンク力と軌道力が引っ張り合わないようにする
+      orbitForce() {
+        let nodes = [];
+        const golden = Math.PI * (3 - Math.sqrt(5));
+        const force = (alpha) => {
+          const systems = new Map();
+          for (const node of nodes) {
+            if (node.kind === 'article' || !node.parentId) continue;
+            const star = this.byId.get(node.parentId);
+            if (!star || star.x == null) continue;
+            if (!systems.has(star)) systems.set(star, []);
+            systems.get(star).push(node);
+          }
+          let radiusChanged = false;
+          for (const [star, planets] of systems) {
+            planets.sort((a, b) => (a.kind === 'pool') - (b.kind === 'pool') || a.id.localeCompare(b.id));  // その他は最後の席
+            const { u, v, w } = this.orbitBasis(star);
+            const n = planets.length;
+            const radius = this.cfg.orbitRadius * Math.max(1, Math.sqrt(n / this.cfg.orbitBaseCount));
+            const k = this.cfg.orbitStrength * alpha;
+            planets.forEach((planet, i) => {
+              if (planet.__orbitRadius !== radius) { planet.__orbitRadius = radius; radiusChanged = true; }
+              const y = n === 1 ? 0 : 1 - (2 * (i + .5)) / n;  // 極から極へ等間隔
+              const r = Math.sqrt(Math.max(0, 1 - y * y));
+              const angle = i * golden;
+              const px = r * Math.cos(angle), pz = r * Math.sin(angle);
+              planet.vx += (star.x + radius * (u.x * px + w.x * y + v.x * pz) - planet.x) * k;
+              planet.vy += (star.y + radius * (u.y * px + w.y * y + v.y * pz) - planet.y) * k;
+              planet.vz += (star.z + radius * (u.z * px + w.z * y + v.z * pz) - planet.z) * k;
+            });
+          }
+          if (radiusChanged) { const link = this.graph.d3Force('link'); link.distance(link.distance()); }  // 辺の長さを取り直す
+        };
+        force.initialize = (list) => { nodes = list; };
+        return force;
+      }
+
+      // 恒星 ID から決定論的に球殻の向き (直交基底) を決める (同じ記事は何度置いても同じ向き)
+      orbitBasis(star) {
+        if (star.__orbit) return star.__orbit;
+        let h = 2166136261;
+        for (const ch of star.id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+        const theta = ((h & 0xffff) / 0xffff) * Math.PI * 2;
+        const phi = Math.acos(1 - 2 * (((h >>> 16) & 0xffff) / 0xffff));
+        const w = new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta)).normalize();
+        const helper = Math.abs(w.y) < .9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+        const u = new THREE.Vector3().crossVectors(w, helper).normalize();
+        const v = new THREE.Vector3().crossVectors(w, u).normalize();
+        star.__orbit = { u, v, w };
+        return star.__orbit;
+      }
+
       nodeColor(node) {
         if (node.kind === 'cluster') return this.focusedNodeColor(node, this.cfg.clusterColor);
         if (node.kind === 'pool') return this.focusedNodeColor(node, this.cfg.poolColor);
@@ -1120,13 +1192,13 @@
 
       linkColor(link) {
         if (this.isFocusedLink(link)) return 'rgba(255,255,255,1)';
-        // 全体の不透明度を上げた分、通常線のアルファを下げて従来の明るさを保つ
-        return link.kind === 'cluster' ? 'rgba(243,200,135,.37)' : 'rgba(166,218,202,.41)';
+        // 恒星–惑星は細く淡い寒色で所属だけを示し、恒星–恒星は暖色で少し強く
+        return link.kind === 'cluster' ? 'rgba(156,193,255,.28)' : 'rgba(255,214,170,.36)';
       }
 
       linkWidth(link) {
         if (this.isFocusedLink(link)) return 1.8;
-        return link.kind === 'similar' ? .85 : .5;
+        return link.kind === 'cluster' ? .3 : .85;
       }
 
       visualState(node) {
@@ -1150,7 +1222,8 @@
         const state = this.visualState(node);
         const color = this.nodeColor(node);
         const opacity = this.nodeOpacity(node);
-        const radius = selected ? 8.2 : focused ? 6.4 : node.kind === 'article' ? (node.expanded ? 6.2 : 4.6) : 4.4;
+        const star = node.kind === 'article';
+        const radius = selected ? 8.2 : focused ? 4.6 : star ? (node.expanded ? 6.2 : 4.6) : 3;
         const group = new THREE.Group();
         const materials = [];
 
@@ -1168,10 +1241,10 @@
         group.add(body);
         materials.push(body.material);
 
-        if (node.kind !== 'article') {
-          // 星団は傾いた環で囲み、記事星と見分けられるようにする
+        if (node.kind === 'pool') {
+          // その他の関連記事は環のある惑星にして、カテゴリの惑星と見分けられるようにする
           const ringColor = focused ? '#ffffff' : color;
-          const ring = new THREE.Mesh(new THREE.TorusGeometry(radius + 3.5, focused ? .75 : .55, 8, 40), new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity }));
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(radius + 2.4, focused ? .6 : .4, 8, 40), new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity }));
           ring.rotation.x = Math.PI / 2.6;
           group.add(ring);
           materials.push(ring.material);
@@ -1194,12 +1267,12 @@
         }
 
         const emphasized = selected || focused;
-        const label = new SpriteText(node.name, emphasized ? 4.9 : 3.7, color);
+        const label = new SpriteText(node.name, emphasized ? 4.9 : star ? 3.9 : 3.3, color);
         label.fontFace = 'sans-serif';
         label.backgroundColor = this.labelBackground(state);
         label.padding = emphasized ? 1.7 : .8;
         label.borderRadius = 3;
-        label.position.y = radius + (emphasized ? 7 : node.kind === 'article' ? 4.6 : 6.5);
+        label.position.y = radius + (emphasized ? 7 : star ? 4.6 : node.kind === 'pool' ? 4.4 : 3.4);
         label.material.opacity = opacity;
         group.add(label);
         materials.push(label.material);
@@ -1209,8 +1282,7 @@
         node.__labelScale = 1;
         node.__bodyMaterial = body.material;
         node.__visualMaterials = materials;
-        if (emphasized) this.setLabelScale(node, this.selectedLabelScale(node));
-        else if (node === this.hovered) this.setLabelScale(node, this.hoverLabelScale(node));
+        this.setLabelScale(node, this.targetLabelScale(node));
         if (node.__arrival) this.runArrival(node, group);
         return group;
       }
@@ -1295,20 +1367,34 @@
         container.style.cursor = node ? 'pointer' : 'grab';
         this.updateNodeVisual(previous);
         this.updateNodeVisual(this.hovered);
-        if (previous && previous !== this.selected && previous !== this.focused) this.queueLabelAnimation(previous, 1);
+        if (previous && previous !== this.selected && previous !== this.focused) this.queueLabelAnimation(previous, this.baseLabelScale(previous));
         if (this.hovered && this.hovered !== this.selected && this.hovered !== this.focused) this.queueLabelAnimation(this.hovered, this.hoverLabelScale(this.hovered));
         this.animateHoverLabels();
+      }
+
+      // 通常ラベルの距離補正。遠いほど拡大するが、見かけの大きさを一定にはせず (labelDepthPower < 1) 遠近感を残す
+      baseLabelScale(node) {
+        if (!node) return 1;
+        const ratio = this.labelCameraDepth(node) / this.cfg.focusDistance;
+        return THREE.MathUtils.clamp(Math.pow(ratio, this.cfg.labelDepthPower), 1, this.cfg.labelMaxScale);
       }
 
       hoverLabelScale(node) {
         if (!node) return 1;
         const depth = this.labelCameraDepth(node);
-        return THREE.MathUtils.clamp(this.cfg.hoverLabelScale * depth / this.cfg.focusDistance, 1, this.cfg.hoverLabelMaxScale);
+        return Math.max(this.baseLabelScale(node), THREE.MathUtils.clamp(this.cfg.hoverLabelScale * depth / this.cfg.focusDistance, 1, this.cfg.hoverLabelMaxScale));
       }
 
       selectedLabelScale(node) {
         if (!node) return 1;
         return Math.max(1, this.labelCameraDepth(node) / this.cfg.focusDistance);
+      }
+
+      // ノードの状態に応じた本来のラベル倍率 (ホバーの拡縮アニメーション中は目標値)
+      targetLabelScale(node) {
+        if (node === this.selected || node === this.focused) return this.selectedLabelScale(node);
+        if (node === this.hovered) return this.hoverLabelScale(node);
+        return this.baseLabelScale(node);
       }
 
       labelCameraDepth(node) {
@@ -1318,9 +1404,10 @@
         return Math.max(0, offset.dot(forward));
       }
 
-      updateSelectedLabelScale() {
-        for (const node of [this.selected, this.focused]) {
-          if (node?.__sprite) this.setLabelScale(node, this.selectedLabelScale(node));
+      // カメラやノードが動いたら全ラベルの距離補正を取り直す (アニメーション中のラベルはそのまま)
+      updateLabelScales() {
+        for (const node of this.nodes) {
+          if (node.__sprite && !node.__labelAnimation) this.setLabelScale(node, this.targetLabelScale(node));
         }
       }
 
@@ -1432,6 +1519,7 @@
         const { node, parent, kind } = entry;
         const origin = parent ?? { x: 0, y: 0, z: 0 };
         Object.assign(node, { x: origin.x, y: origin.y, z: origin.z });
+        if (parent) node.parentId = parent.id;  // 惑星は親の恒星の軌道に乗る
         this.nodes.push(node);
         if (parent) this.links.push({ source: parent.id, target: node.id, kind });
         if (parent?.id === this.selected?.id) this.relatedIds.add(node.id);
@@ -1476,7 +1564,7 @@
         this.refreshStyles();
       }
 
-      // 現在の記事は維持したまま、詳細を表示する星団だけを二次的に強調する
+      // 現在の記事は維持したまま、詳細を表示する惑星だけを二次的に強調する
       inspect(node) {
         if (this.focused) { delete this.focused.fx; delete this.focused.fy; delete this.focused.fz; }
         this.focused = node;
@@ -1572,12 +1660,16 @@
         const current = direction.length();
         const view = direction.clone().normalize();
         const needed = this.neededDistance(center, neighbors, view, camera);
+        const crowding = this.axisCrowding(center, neighbors, view);
         const shouldZoomOut = current + 1 < needed;
         const shouldCorrectIn = allowZoomIn && current > needed * 1.08;
-        if (!shouldZoomOut && !shouldCorrectIn) { if (allowZoomIn) this.autoFrameActive = false; return; }
+        if (!shouldZoomOut && !shouldCorrectIn && crowding === 0) { if (allowZoomIn) this.autoFrameActive = false; return; }
 
-        // 視線の候補: 今の向きを中心とした円錐内。回転で必要距離が十分縮む場合だけ採用し、少しの差なら回らない
-        let best = { view, needed, angle: 0 };
+        // 視線の候補: 今の向きを中心とした円錐内。評価値は必要距離に「視線軸上の隣接ノード (選択ノードやそのラベルと重なる)」の
+        // 割増と回転角の割増を掛けたもの。評価値が十分下がる向きがある場合だけ回転し、少しの差なら回らない
+        const score = ({ needed: d, crowding: c, angle }) => d * (1 + this.cfg.frameCrowdWeight * c) * (1 + .1 * angle / this.cfg.frameRotateMax);
+        const stay = { view, needed, crowding, angle: 0 };
+        let best = stay;
         const budget = this.cfg.frameRotateMax - this.autoRotated;
         if (budget >= 6 && !this.reducedMotion.matches) {
           const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
@@ -1590,18 +1682,30 @@
                 .addScaledVector(right, Math.sin(t) * Math.cos(a))
                 .addScaledVector(up, Math.sin(t) * Math.sin(a))
                 .normalize();
-              const distance = this.neededDistance(center, neighbors, candidate, camera);
-              const cost = distance * (1 + .1 * tilt / this.cfg.frameRotateMax);  // 同程度なら回転が小さいほうを選ぶ
-              if (cost < best.needed * (1 + .1 * best.angle / this.cfg.frameRotateMax)) best = { view: candidate, needed: distance, angle: tilt };
+              const option = { view: candidate, needed: this.neededDistance(center, neighbors, candidate, camera), crowding: this.axisCrowding(center, neighbors, candidate), angle: tilt };
+              if (score(option) < score(best)) best = option;
             }
           }
-          if (best.angle && best.needed > needed * (1 - this.cfg.frameRotateGain)) best = { view, needed, angle: 0 };
+          if (best.angle && score(best) > score(stay) * (1 - this.cfg.frameRotateGain)) best = stay;
         }
+        if (!best.angle && !shouldZoomOut && !shouldCorrectIn) { if (allowZoomIn) this.autoFrameActive = false; return; }  // 混雑は回転でしか解けない
 
         const duration = this.reducedMotion.matches ? 0 : Math.max(this.cfg.focusDuration, (best.angle / this.cfg.frameRotateSpeed) * 1000);
         this.autoRotated += best.angle;
         this.autoFrameActive = !allowZoomIn;
         this.moveCamera(center, best.view, Math.max(this.cfg.focusDistance, best.needed), duration);
+      }
+
+      // 視線軸 (中心を通る view の直線) の近くにある隣接ノードの重み付き個数。手前でも奥でも、画面上では選択ノードとそのラベルに重なる。
+      // 軸に近いほど 1 に近く、frameCrowdRadius で 0 になる
+      axisCrowding(center, targets, view) {
+        let total = 0;
+        for (const other of targets) {
+          const offset = new THREE.Vector3(other.x - center.x, other.y - center.y, other.z - center.z);
+          const lateral = offset.clone().sub(view.clone().multiplyScalar(offset.dot(view))).length();
+          if (lateral < this.cfg.frameCrowdRadius) total += 1 - lateral / this.cfg.frameCrowdRadius;
+        }
+        return total;
       }
 
       // 視線 view (中心からカメラへの単位ベクトル) で見たとき、targets の frameCoverage 割合が画面に収まるカメラ距離。
@@ -1968,7 +2072,7 @@
       showCluster(node) {
         this.open();
         this.shown = node;
-        this.typeText.textContent = node.kind === 'cluster' ? 'Category constellation' : 'Other links';
+        this.typeText.textContent = node.kind === 'cluster' ? 'Category planet' : 'Other links';
         this.type.removeAttribute('href');
         this.type.removeAttribute('title');
         this.type.removeAttribute('aria-label');
@@ -1977,8 +2081,8 @@
 
         const p = document.createElement('p');
         p.textContent = node.kind === 'cluster'
-          ? 'カテゴリを共有する関連記事をまとめた星団です。記事名をクリックすると、その記事へ移動します。'
-          : 'どの星団にも属さない関連記事です。記事名をクリックすると、その記事へ移動します。';
+          ? 'カテゴリを共有する関連記事をまとめた惑星です。記事名をクリックすると、その記事へ移動します。'
+          : 'どの惑星にも属さない関連記事を集めた、環のある惑星です。記事名をクリックすると、その記事へ移動します。';
         const list = document.createElement('ul');
         list.className = 'member-list';
         for (const page of node.members) {
@@ -2002,7 +2106,7 @@
         this.panel.setAttribute('aria-busy', String(busy));
       }
 
-      // 記事の集計 (カテゴリ = 星団数、その他 = 星団に入らなかった記事数、出リンク、被リンク)。
+      // 記事の集計 (カテゴリ = 惑星数、その他 = 惑星に入らなかった記事数、出リンク、被リンク)。
       // 未取得の項目は — にして、収集の進行に合わせて数字だけ差し替える
       articleStats(node, note = '') {
         if (node !== this.shown) return;
@@ -2044,7 +2148,7 @@
       }
     }
 
-    // 選択履歴のスタック。記事星だけでなく開いた星団・その他も 1 段として積み、戻る／進むで辿り直せる
+    // 選択履歴のスタック。記事星だけでなく開いた惑星・その他も 1 段として積み、戻る／進むで辿り直せる
     class HistoryNav {
       constructor({ onMove }) {
         this.entries = [];
@@ -2276,7 +2380,7 @@
         else this.openCluster(node);
       }
 
-      // 履歴で戻る／進む: 記事星なら再選択、星団・その他なら再び中央に据える (どちらも履歴には積まない)
+      // 履歴で戻る／進む: 記事星なら再選択、惑星・その他なら再び中央に据える (どちらも履歴には積まない)
       revisit(node) {
         if (node.kind === 'article') this.selectArticle(node.page, { fromHistory: true });
         else this.openCluster(node, { fromHistory: true });
@@ -2362,7 +2466,7 @@
         aggregator.exclude(node.page.pageid);
         const depth = node.depth + 1;
 
-        // 1. 類似記事 (morelike): 関連度の高い順に直接ノードにする。残りは星団の候補へ
+        // 1. 類似記事 (morelike): 関連度の高い順に直接ノードにする。残りは惑星の候補へ
         const similar = (await this.api.similarPages(node.page.title, signal)).filter((page) => page.pageid !== node.page.pageid && !page.disambiguation);
         if (runId !== this.runId) return;
         const direct = similar.slice(0, CONFIG.related.directMax);
@@ -2376,8 +2480,8 @@
         this.detail.articleStats(node);
 
         // 2. 出リンク (この記事が説明に使うもの) と被リンクの標本 (この記事を使う側: 応用・具体例・関係人物) を
-        //    同じ歩幅で交互に集約する。星団の枠 (maxClusters) は先着順に埋まるので、片方を先に流し切ると
-        //    もう片方のカテゴリが星団になる機会を失う。交互に流せば実際のカテゴリ共有数で競い、配分はデータ次第になる
+        //    同じ歩幅で交互に集約する。惑星の枠 (maxClusters) は先着順に埋まるので、片方を先に流し切ると
+        //    もう片方のカテゴリが惑星になる機会を失う。交互に流せば実際のカテゴリ共有数で競い、配分はデータ次第になる
         const counts = { out: 0, in: 0 };
         const backlinks = {};
         const sources = [
@@ -2419,7 +2523,7 @@
         else this.graph.add({ id, kind: 'pool', name, members: aggregator.pool, depth, expanded: false }, parent, 'cluster');
       }
 
-      // 星団をクリック: 中央に据えてメンバー一覧を詳細パネルに出し、一部をグラフに展開する
+      // 惑星をクリック: 中央に据えてメンバー一覧を詳細パネルに出し、一部を恒星としてグラフに展開する
       openCluster(node, { fromHistory = false } = {}) {
         this.graph.inspect(node);
         this.graph.focus(node);
