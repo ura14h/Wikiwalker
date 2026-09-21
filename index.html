@@ -152,9 +152,9 @@
     }
     .intro.hidden { opacity: 0; visibility: hidden; transition: opacity .5s, visibility 0s .5s; }  /* 消えるときだけ visibility を遅らせ、出るときは即座に操作できる */
     /* 入力が始まったら intro ごと持ち上げて検索欄を上端の定位置へ寄せ、候補リストの場所を空ける。
-       検索欄の DOM は動かさないので IME の変換中でも安全。--lift-top は JS が測って入れる */
+       検索欄だけが動くのではなく視点が平行移動したように見せるため、タイトルや案内文は消さずに一緒に動かして上端で見切れさせる
+       (星間航行も同じ向きに視差で流れる)。検索欄の DOM は動かさないので IME の変換中でも安全。--lift-top は JS が測って入れる */
     .intro.lifted { top: var(--lift-top); transform: translate(-50%, 0); }
-    .intro.lifted > :not(.intro-search) { opacity: 0; transform: translateY(-16px); }
     .app.hero .intro { z-index: 11; }  /* 持ち上げた検索欄が topbar の暗いグラデーションの下に入らないように */
     .app.hero :is(.brand, .attribution, .controls-hint) { opacity: 0; pointer-events: none; }
     .brand, .attribution, .controls-hint { transition: opacity .35s .3s; }
@@ -172,11 +172,15 @@
     @keyframes rise { from { opacity: 0; transform: translateY(18px); } }
     .intro > * { transition: transform .5s cubic-bezier(.2, .7, .2, 1), opacity .35s; }
     .intro.hidden > * { transform: translateY(-22px); }  /* 飛び立つ検索欄と同じ向きに流して消える */
-    .app.hero .search-row { border-color: rgba(201,255,182,.4); animation: invite 2.6s ease-in-out infinite; }
-    @keyframes invite {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(201,255,182,0), 0 12px 50px rgba(0,0,0,.35), inset 0 1px rgba(255,255,255,.025); }
-      50% { box-shadow: 0 0 0 7px rgba(201,255,182,.08), 0 0 44px rgba(127,227,205,.14), 0 12px 50px rgba(0,0,0,.35), inset 0 1px rgba(255,255,255,.025); }
+    /* 初期画面の検索欄は淡い光がゆっくり呼吸する。輪や枠を点滅させると星の滑らかな流れに対してカーソルのように見えるので、
+       輪郭のない広い光だけを、合成器で動く opacity で明滅させる */
+    .app.hero .search-row { position: relative; border-color: rgba(201,255,182,.4); }
+    .app.hero .search-row::after {
+      content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+      box-shadow: 0 0 34px 6px rgba(127,227,205,.16), 0 0 90px 18px rgba(201,255,182,.1);
+      animation: invite 5.2s ease-in-out infinite;
     }
+    @keyframes invite { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 
     .status {
       position: absolute; z-index: 6; left: 50%; top: 88px; transform: translateX(-50%);
@@ -260,7 +264,7 @@
     /* シートの枠は画面の枠に合わせる: 右 22px・下 22px は帯や凡例の余白と同じ、上 104px は凡例の上端と同じ地平線 */
     .detail.sheet { top: calc(104px + env(safe-area-inset-top)); bottom: calc(22px + env(safe-area-inset-bottom)); width: min(430px, calc(100% - 44px)); }
     /* 入場アニメーションは非表示から開くときだけ (entering)。開いたままの切り替えは setMode が実寸を補間する */
-    .detail.sheet.entering { animation: sheet-in .38s var(--ease-out) both; }
+    .detail.sheet.entering { animation: sheet-in .55s var(--ease-out) both; }  /* 右から滑り込ませず、その場でゆっくり現れる (視線を引っ張らない) */
     .detail.dock.entering { animation: panel-in .3s var(--ease-out) both; }
     /* シートが右を覆う間、下端の権利表示と操作案内はシートの左の領域に収める (グラフの注視点も同じ領域の中央に寄せている) */
     .app:has(.detail.open.sheet) .attribution { max-width: min(560px, calc(100% - 44px - 452px)); }
@@ -271,7 +275,7 @@
     .detail.morphing { max-height: none !important; }
     .detail.morphing .detail-body, .detail.morphing .detail-categories { animation: content-in var(--morph) var(--ease-out) both; }
     @keyframes content-in { 0%, 45% { opacity: 0; } }
-    @keyframes sheet-in { from { opacity: 0; transform: translateX(18px); } }
+    @keyframes sheet-in { from { opacity: 0; transform: translateX(6px); } }
     @keyframes panel-in { from { opacity: 0; transform: translateY(10px); } }
     .detail-head { flex: 0 0 auto; padding: 18px 20px 15px; border-bottom: 1px solid var(--line); transition: background-color .25s, border-color .25s; }
     .detail-relation { margin: 8px 0 0; color: var(--accent-2); font-size: 12px; line-height: 1.6; }
@@ -602,11 +606,15 @@
         count: 420,       // 星の数
         cruise: .28,      // 巡航速度 (奥行き 1 を進むのにかかる秒数の逆数)
         warpBoost: 16,    // ワープ (記事を選んでから本文が届くまで) の加速倍率
-        warpRamp: 400,    // 巡航からワープ速度に達するまで (ms)
+        warpRamp: 550,    // 巡航からワープ速度に達するまで (ms)。ease-in
         minWarp: 700,     // 本文がすぐ届いても、ワープはこれだけ見せる (ms)
-        fadeDuration: 800,   // 暗闇へ溶けて止まるまで (ms)
-        arrivalDelay: 140,   // 溶け始めてから記事星が現れ始めるまで (ms)
-        arrivalDuration: 520,  // 記事星が拡大しながら現れる時間 (ms)
+        fadeDuration: 800,   // 暗闇へ溶けて止まるまで (ms)。この間に星の速度も ease-out で落ち、記事星の接近と同じ減速になる
+        arrivalDelay: 0,     // 溶け始めてから記事星が現れ始めるまで (ms)。星々が掃け切る前から小さく見え始める
+        arrivalDuration: 900,  // 記事星が拡大しながら現れる時間 (ms)。ワープの勢いを引き継いで ease-out で止まる
+        arrivalScale: .06,   // 記事星の最初の大きさ (遠くの点として現れる)
+        landingSheetDelay: 600,  // 到着後、帯が現れてからシートへ伸びるまで (ms)。利用者が自分で開くときと同じ変形で開く
+        parallax: .45,       // 入力で案内を持ち上げるとき、星の流れの中心も同じ向きに動く割合 (背景なので案内より少なく)
+        panDuration: 550,    // その移動にかける時間 (ms)。案内の持ち上げ (CSS の .55s) と揃える
       },
 
       // グラフの見た目と動き
@@ -1132,6 +1140,7 @@
         this.frame = null;
         this.last = 0;
         this.warpAt = null;  // ワープ開始時刻。null なら巡航
+        this.pan = { from: 0, to: 0, start: 0 };  // 流れの中心の縦ずれ (px)。案内の持ち上げに視差で追従する
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         window.addEventListener('resize', () => { if (this.frame) this.resize(); });
       }
@@ -1157,6 +1166,7 @@
         if (this.reducedMotion.matches) return;
         clearTimeout(this.stopTimer);
         this.warpAt = null;
+        this.fadeAt = null;
         this.canvas.classList.remove('burst');
         this.canvas.classList.add('visible');
         if (this.frame) return;  // ワープ中に初期画面へ戻ったときは巡航に戻すだけ
@@ -1166,14 +1176,27 @@
         this.frame = requestAnimationFrame((now) => this.tick(now));
       }
 
+      // 流れの中心を縦に動かす (案内の持ち上げに合わせた視点の平行移動)。immediate なら即座に
+      panTo(y, { immediate = false } = {}) {
+        const now = performance.now();
+        this.pan = { from: immediate ? y : this.panAt(now), to: y, start: immediate ? -Infinity : now };
+      }
+
+      panAt(now) {
+        const { from, to, start } = this.pan;
+        const p = Math.min(1, Math.max(0, (now - start) / this.cfg.panDuration));
+        return from + (to - from) * (1 - Math.pow(1 - p, 4));  // 案内の cubic-bezier(.22, 1, .36, 1) に近い ease-out
+      }
+
       // ワープ: 加速して尾が伸びたまま散り続ける (記事本文が届くまでの待ち時間を隠す)
       warp() {
         if (this.frame && !this.warpAt) this.warpAt = performance.now();
       }
 
-      // 暗闇へ溶けて止まる
+      // 暗闇へ溶けて止まる。溶けている間は速度も ease-out で落とし、尾が縮みながら消える
       fade() {
         if (!this.frame) return;
+        this.fadeAt = performance.now();
         this.canvas.classList.add('burst');
         this.canvas.classList.remove('visible');
         clearTimeout(this.stopTimer);
@@ -1184,6 +1207,7 @@
         cancelAnimationFrame(this.frame);
         this.frame = null;
         this.warpAt = null;
+        this.fadeAt = null;
         this.canvas.classList.remove('visible', 'burst');
         this.ctx.clearRect(0, 0, this.width, this.height);
       }
@@ -1192,9 +1216,10 @@
         const dt = Math.min((now - this.last) / 1000, .05);
         this.last = now;
         const ramp = this.warpAt ? Math.min((now - this.warpAt) / this.cfg.warpRamp, 1) : 0;
-        const speed = this.cfg.cruise * (1 + this.cfg.warpBoost * ramp * ramp);
+        const brake = this.fadeAt ? Math.pow(1 - Math.min((now - this.fadeAt) / this.cfg.fadeDuration, 1), 3) : 1;  // ease-out cubic
+        const speed = this.cfg.cruise * (1 + this.cfg.warpBoost * ramp * ramp * ramp) * brake;  // 加速は ease-in cubic
         const { ctx, width, height } = this;
-        const cx = width / 2, cy = height / 2;
+        const cx = width / 2, cy = height / 2 + this.panAt(now);
         const focal = Math.min(width, height) * .5;
         ctx.clearRect(0, 0, width, height);
         ctx.lineCap = 'round';
@@ -1276,7 +1301,7 @@
       }`;
 
     // 惑星のテクスチャ。正距円筒図を Canvas に手続きで描き、種類ごとに数枚作って全惑星で共有する。
-    // 生成は合計で 1 秒近く CPU を使うので、起動後の空き時間に 1 枚ずつ作る (間に合わなければその場で作る)
+    // 生成は合計で 1 秒近く CPU を使うので、起動時に星間航行を流す前にまとめて作る (GraphView.warmUp)
     class PlanetTextures {
       constructor() {
         this.ready = new Map();  // key → THREE.Texture
@@ -1297,28 +1322,16 @@
           ['ring1', () => PlanetTextures.ring({ seed: 2, inner: .5 })],
         ];
         this.counts = { jupiter: 3, mars: 2, earth: 1, saturn: 2, ring: 2 };
-        this.pending = [...this.recipes];
-        this.scheduleNext();
       }
 
-      scheduleNext() {
-        if (this.pending.length === 0) return;
-        const idle = window.requestIdleCallback ?? ((fn) => setTimeout(() => fn({ timeRemaining: () => 50 }), 50));
-        idle(() => { this.buildNext(); this.scheduleNext(); });
-      }
-
-      buildNext() {
-        const next = this.pending.shift();
-        if (next && !this.ready.has(next[0])) this.ready.set(next[0], next[1]());
+      // 全部まとめて作る (合計 1 秒弱)。起動時、星間航行を流し始める前に済ませ、流れている間に描画を止めない
+      buildAll() {
+        for (const [name, make] of this.recipes) if (!this.ready.has(name)) this.ready.set(name, make());
       }
 
       get(kind, index) {
         const key = `${kind}${index % this.counts[kind]}`;
-        if (!this.ready.has(key)) {
-          const recipe = this.recipes.find(([name]) => name === key);
-          this.ready.set(key, recipe[1]());
-          this.pending = this.pending.filter((entry) => entry !== recipe);
-        }
+        if (!this.ready.has(key)) this.ready.set(key, this.recipes.find(([name]) => name === key)[1]());
         return this.ready.get(key);
       }
 
@@ -1564,6 +1577,25 @@
       resize() {
         this.graph.width(window.innerWidth).height(window.innerHeight);
         this.applyViewShift();
+      }
+
+      // 重い準備を先に済ませる: 惑星のテクスチャ生成と、恒星・惑星・銀河のシェーダーのコンパイル。
+      // 初期画面の星間航行を流し始める前に呼び、流れている最中や最初の記事星の出現時に描画が止まらないようにする
+      warmUp() {
+        this.planetTextures.buildAll();
+        const probes = [
+          { id: 'warm:star', kind: 'article', name: 'a', page: {}, depth: 0 },
+          { id: 'warm:cluster', kind: 'cluster', name: 'b', category: 'b', members: [], depth: 1 },
+          { id: 'warm:pool', kind: 'pool', name: 'c', members: [], depth: 1 },
+          { id: 'warm:galaxy', kind: 'article', name: 'd', page: {}, depth: 0, visited: true, __system: { nodes: [], links: [], bridges: [], ids: new Set() } },
+        ];
+        const group = new THREE.Group();
+        for (const probe of probes) group.add(this.createNodeObject(probe));
+        const scene = this.graph.scene();
+        scene.add(group);
+        this.graph.renderer().compile(scene, this.graph.camera());
+        scene.remove(group);
+        this.warmProbe = group;  // 材質を保持しておく (破棄するとコンパイル済みプログラムも解放される)
       }
 
       // カーソル速度の追跡。calmSpeed より速い動きは「通過」で、その時刻を覚えておく (滞留はここから数える)
@@ -2124,14 +2156,15 @@
         if (node.__threeObj) this.runArrival(node, node.__threeObj);
       }
 
-      // 時刻だけで拡大率を決めるので、途中で見た目が作り直されても新しいオブジェクトに同じ進行で適用できる
+      // 時刻だけで拡大率を決めるので、途中で見た目が作り直されても新しいオブジェクトに同じ進行で適用できる。
+      // 遠くの点 (arrivalScale) から、ワープの勢いを引き継いだ ease-out で近づいて止まる (星々の減速と同じ曲線)
       runArrival(node, group) {
         cancelAnimationFrame(node.__arrivalFrame);
+        const from = CONFIG.starfield.arrivalScale;
         const tick = (now) => {
           const { start, duration } = node.__arrival;
           const p = Math.min(1, Math.max(0, (now - start) / duration));
-          const back = 1.70158;  // easeOutBack: 少し行き過ぎてから収まる
-          const eased = p === 0 ? 0 : 1 + (back + 1) * Math.pow(p - 1, 3) + back * Math.pow(p - 1, 2);
+          const eased = p === 0 ? 0 : from + (1 - from) * (1 - Math.pow(1 - p, 3));
           (node.__threeObj ?? group).scale.setScalar(Math.max(.001, eased));
           if (p < 1) node.__arrivalFrame = requestAnimationFrame(tick);
           else { delete node.__arrival; node.__arrivalFrame = null; }
@@ -3524,6 +3557,7 @@
         this.flight = null;          // 検索欄の移動アニメーション
         this.landing = null;         // 初期画面から到着中の記事星。現れ切るまで着陸シートを開かない
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        this.graph.warmUp();  // 重い準備 (テクスチャとシェーダー) は星が流れる前に済ませる
         this.enterHero({ animate: false });  // HTML の初期状態がすでに初期画面の形なので、ここでは状態を合わせるだけ
       }
 
@@ -3543,6 +3577,7 @@
           void intro.offsetHeight;
           intro.style.transition = '';
         }
+        this.starfield.panTo(0, { immediate: true });
         this.dockSearch(this.introSlot, { animate });
         // タッチ端末ではキーボードを勝手に出さない。intro の visibility 遷移が始まる前はフォーカスできないので 1 フレーム待つ
         if (window.matchMedia('(hover: hover)').matches) requestAnimationFrame(() => { if (this.hero) $('#searchInput').focus(); });
@@ -3556,8 +3591,10 @@
         const intro = $('#intro');
         if (intro.classList.contains('lifted')) return;
         const target = this.topbar.getBoundingClientRect().top + parseFloat(getComputedStyle(this.topbar).paddingTop);
-        intro.style.setProperty('--lift-top', `${target - this.introSlot.offsetTop}px`);
+        const lift = target - this.introSlot.offsetTop;
+        intro.style.setProperty('--lift-top', `${lift}px`);
         intro.classList.add('lifted');
+        this.starfield.panTo(lift * CONFIG.starfield.parallax);  // 星の流れも同じ向きに視差で動き、視点が動いたように見せる
       }
 
       // 最初の記事を選んだ瞬間に、星間航行がワープに入り、検索欄は上端の定位置へ飛ぶ。
@@ -3567,6 +3604,7 @@
         this.hero = false;
         this.app.classList.remove('hero');
         this.starfield.warp();
+        this.starfield.panTo(0);  // 持ち上げで下がっていた流れの中心を、記事星が現れる画面中央へ戻しながらワープに入る
         this.warpStart = performance.now();
         if (node) this.graph.hold(node, { duration: CONFIG.starfield.arrivalDuration });
         this.dockSearch(this.topbar, { before: $('.history') });
@@ -3595,8 +3633,15 @@
           if (this.landing !== node) return;
           this.landing = null;
           if (this.current !== node) return;
-          this.showCurrent(node, { loading: !node.page.detailed && !failed });
+          // 利用者が自分で開くときと同じ動きにする: まず帯が現れ、一呼吸おいて帯がシートへ伸び、注視点の寄せもそれに同期する。
+          // シートが右から丸ごと現れる独自の入場だと、開閉の動きの語彙が増えて到着後の視線が迷う
+          this.showCurrent(node, { loading: !node.page.detailed && !failed, mode: 'dock' });
           if (failed) this.detail.showArticleError(node);
+          if (!this.touch.matches) {
+            setTimeout(() => {
+              if (this.current === node && this.detail.shown === node && this.detail.isOpen && this.detail.mode === 'dock') this.detail.setMode('sheet');
+            }, this.reducedMotion.matches ? 0 : CONFIG.starfield.landingSheetDelay);
+          }
         }, settle);
       }
 
@@ -3809,9 +3854,9 @@
       }
 
       // 現在地の記事をパネルに出す。ホバーのない端末では帯 (定義文 + 読む) から始め、シートは利用者が開く
-      showCurrent(node, { loading = false } = {}) {
+      showCurrent(node, { loading = false, mode = null } = {}) {
         if (this.warpStart != null || this.landing === node) return;  // 初期画面からの到着中はまだ出さない (arriveHero が開く)
-        const mode = this.detail.shown === node && this.detail.isOpen ? this.detail.mode : this.touch.matches ? 'dock' : 'sheet';
+        mode ??= this.detail.shown === node && this.detail.isOpen ? this.detail.mode : this.touch.matches ? 'dock' : 'sheet';
         this.detail.showArticle(node, { loading, relation: this.relationOf(node), mode });
       }
 
