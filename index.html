@@ -647,8 +647,8 @@
       related: {
         similarLimit: 20,    // morelike 検索で取る類似記事数
         directMax: 10,       // 類似記事のうち直接ノードにする上限 (残りは惑星へ)
-        linkBatch: 50,       // generator=links の 1 回あたり件数
-        maxLinkRequests: 6,  // 出リンク列挙の上限リクエスト数 (最大 300 リンク)
+        linkBatch: 50,       // 出リンクの属性を引く 1 回あたり件数
+        maxLinkRequests: 6,  // 出リンクの属性の上限リクエスト数 (最大 300 リンク。一覧はその前に 1 回で取る)
         backlinkSample: 100, // 被リンクは全数ではなく無作為標本をこの件数だけ集約に加える (要求 1 + 属性 2 回)
         pageBatch: 50,       // pageids 指定で属性を引くときの 1 回あたり件数 (API の上限)
         minClusterSize: 3,   // これ以上の記事が同じカテゴリを共有すれば惑星にする
@@ -1040,59 +1040,39 @@
         return (data.query?.pages ?? []).map((raw) => this.normalizePage(raw)).sort((a, b) => a.rank - b.rank);
       }
 
-      // 出リンク先をカテゴリ付きでバッチごとに列挙する (generator=links)。
-      // 1 バッチが batchcomplete になるまで、同じページの属性を束ねてから yield する
-      async *linkedPages(pageid, signal) {
-        let pending = new Map();
-        let cont = {};
-        for (let i = 0; i < CONFIG.related.maxLinkRequests; i++) {
-          const data = await this.request({
-            action: 'query', pageids: pageid, generator: 'links', gplnamespace: 0, gpllimit: CONFIG.related.linkBatch,
-            prop: 'info|categories|pageprops', inprop: 'url', clshow: '!hidden', cllimit: 'max', ppprop: 'disambiguation', redirects: 1, ...cont,
-          }, { priority: CONFIG.priority.background, signal });
-
-          for (const raw of data.query?.pages ?? []) this.mergePage(pending, raw);
-          if (data.batchcomplete) {
-            const batch = [...pending.values()];
-            batch.more = Boolean(data.continue) && i + 1 < CONFIG.related.maxLinkRequests;  // まだ続くか (進捗の見積もりに使う)
-            yield batch;
-            pending = new Map();
-          }
-          if (!data.continue) break;
-          cont = data.continue;
-        }
-        if (pending.size) yield [...pending.values()];
+      // 出リンク先の題名の一覧 (prop=links)。属性は付けず、総量を先に確定させる (進捗の見積もりと、属性の要求数のため)。
+      // 1 回で最大 500 件。対象にするのは先頭の linkBatch × maxLinkRequests 件 (約 300) まで。truncated はそれを超えたか
+      async linkTargets(pageid, signal) {
+        const data = await this.request({
+          action: 'query', pageids: pageid, prop: 'links', plnamespace: 0, pllimit: 'max',
+        }, { priority: CONFIG.priority.page, signal });
+        const titles = (data.query?.pages?.[0]?.links ?? []).map((link) => link.title);
+        const limit = CONFIG.related.linkBatch * CONFIG.related.maxLinkRequests;
+        return { titles: titles.slice(0, limit), truncated: titles.length > limit || Boolean(data.continue) };
       }
 
       // 被リンクの無作為標本 (CirrusSearch の linksto: を srsort=random で)。
-      // 母集団の件数 (totalhits) と pageid だけを取り、属性は pagesByIds で別に引く。
+      // 母集団の件数 (totalhits) と pageid だけを取り、属性は pagesBy で別に引く。
       // random は要求のたびに標本が変わるので、generator=search に prop を重ねて継続取得することはできない
       async backlinkSample(title, signal) {
         const data = await this.request({
           action: 'query', list: 'search', srsearch: `linksto:"${title.replaceAll('"', '')}"`,
           srnamespace: 0, srsort: 'random', srlimit: CONFIG.related.backlinkSample, srprop: '', srinfo: 'totalhits',
-        }, { priority: CONFIG.priority.background, signal });
+        }, { priority: CONFIG.priority.page, signal });  // 総量を決める要求なので、属性の収集より先に通す
         return { total: data.query?.searchinfo?.totalhits ?? 0, pageids: (data.query?.search ?? []).map((item) => item.pageid) };
       }
 
-      // 被リンク標本をカテゴリ付きでバッチごとに列挙する (linkedPages と同じ形)。母集団の件数は stats.total に入れる
-      async *backlinkPages(title, signal, stats = {}) {
-        const { total, pageids } = await this.backlinkSample(title, signal);
-        stats.total = total;
-        stats.sampled = pageids.length;
-        stats.onSample?.(pageids.length);  // 標本が決まった (属性の要求数が確定する)
-        yield* this.pagesByIds(pageids, signal);
-      }
 
-      // pageid の一覧をカテゴリ付きの記事レコードにして、バッチごとに yield する
-      async *pagesByIds(pageids, signal) {
-        for (let start = 0; start < pageids.length; start += CONFIG.related.pageBatch) {
-          const batch = pageids.slice(start, start + CONFIG.related.pageBatch);
+      // pageid または題名の一覧をカテゴリ付きの記事レコードにして、pageBatch 件ずつ yield する。
+      // 1 バッチの分割されたカテゴリは continue で完走させてから束ねる。題名はリダイレクトを解決する
+      async *pagesBy(key, values, signal) {
+        for (let start = 0; start < values.length; start += CONFIG.related.pageBatch) {
+          const batch = values.slice(start, start + CONFIG.related.pageBatch);
           let pending = new Map();
           let cont = {};
           do {
             const data = await this.request({
-              action: 'query', pageids: batch.join('|'),
+              action: 'query', [key]: batch.join('|'), ...(key === 'titles' ? { redirects: 1 } : {}),
               prop: 'info|categories|pageprops', inprop: 'url', clshow: '!hidden', cllimit: 'max', ppprop: 'disambiguation', ...cont,
             }, { priority: CONFIG.priority.background, signal });
             for (const raw of data.query?.pages ?? []) this.mergePage(pending, raw);
@@ -3534,7 +3514,7 @@
       setBusy(busy) {
         this.panel.classList.toggle('loading', busy);
         this.panel.setAttribute('aria-busy', String(busy));
-        if (!busy) this.setProgress(this.shown, 1);
+        if (!busy) this.setProgress(this.shown, 1, { final: true });
       }
 
       // 別のノードを出すとき、バーを前のノードの長さから縮めて見せずに、そのノードの現在値へ即座に置く
@@ -3545,10 +3525,11 @@
         this.progress.style.transition = '';
       }
 
-      // 収集の進捗 (0〜1)。値はノードに持ち (まだ表示していない到着中の星でも進む)、戻らないように単調にする。バーは表示中のノードだけ
-      setProgress(node, fraction) {
+      // 収集の進捗 (0〜1)。値はノードに持ち (まだ表示していない到着中の星でも進む)、戻らないように単調にする。バーは表示中のノードだけ。
+      // 見積もりは途中で増えることがあるので、収集が終わる (final) までは右端まで伸ばさない
+      setProgress(node, fraction, { final = false } = {}) {
         if (!node) return;
-        const value = Math.min(1, Math.max(node.__progressShown ?? 0, fraction));
+        const value = Math.min(final ? 1 : .94, Math.max(node.__progressShown ?? 0, fraction));
         node.__progressShown = value;
         if (node !== this.shown) return;
         this.progress.style.setProperty('--progress', value.toFixed(3));
@@ -4088,7 +4069,10 @@
         node.stats = {};  // 集計は詳細パネルの最下段に出す。中断して再開したときは取り直す
         this.graph.refreshStyles();
         this.detail.setBusy(true);
-        this.expect(node, 5);  // 類似 1 + 出リンク 1 (続きは後で足す) + 被リンクの標本 1 + 属性 2 (標本が決まったら直す)
+        // 類似 1 + 総量を決める 2 (出リンクの一覧、被リンクの標本) + 属性の仮置き (出リンク 3、被リンク 2 = ありがちな量)。
+        // 属性の要求数は総量が決まったときに実数へ置き換える。仮置きが無いと最初の数歩でバーが 6 割まで進んでしまう
+        const provisional = 5;
+        this.expect(node, 3 + provisional);
 
         const aggregator = new RelatedAggregator(CONFIG.related);
         aggregator.exclude(node.page.pageid);
@@ -4108,32 +4092,33 @@
         Object.assign(node.stats, { clusters: aggregator.clusters.size, pool: aggregator.pool.length });
         this.detail.articleStats(node);
 
-        // 2. 出リンク (この記事が説明に使うもの) と被リンクの標本 (この記事を使う側: 応用・具体例・関係人物) を
+        // 2. 総量を先に決める: 出リンク先の題名の一覧と、被リンクの無作為標本 (pageid と母集団の件数) を取る。
+        //    これで残りの要求数 (属性を 50 件ずつ) が確定し、進捗の見積もりが以後は動かない
+        const [targets, sample] = await Promise.all([this.api.linkTargets(node.page.pageid, signal), this.api.backlinkSample(node.page.title, signal)]);
+        if (runId !== this.runId) return;
+        const batches = (n) => Math.ceil(n / CONFIG.related.pageBatch);
+        this.expect(node, batches(targets.titles.length) + batches(sample.pageids.length) - provisional);  // 仮置きを実数に
+        this.advance(node, 2);
+        Object.assign(node.stats, { out: targets.titles.length, outTruncated: targets.truncated, in: { total: sample.total, sampled: sample.pageids.length } });
+        this.detail.articleStats(node);
+
+        // 3. 出リンク (この記事が説明に使うもの) と被リンクの標本 (この記事を使う側: 応用・具体例・関係人物) の属性を
         //    同じ歩幅で交互に集約する。惑星の枠 (maxClusters) は先着順に埋まるので、片方を先に流し切ると
         //    もう片方のカテゴリが惑星になる機会を失う。交互に流せば実際のカテゴリ共有数で競い、配分はデータ次第になる
-        const counts = { out: 0, in: 0 };
-        const backlinks = { onSample: (sampled) => { this.expect(node, Math.ceil(sampled / CONFIG.related.pageBatch) - 2); this.advance(node); } };
         const sources = [
-          { via: 'out', pages: this.api.linkedPages(node.page.pageid, signal) },
-          { via: 'in', pages: this.api.backlinkPages(node.page.title, signal, backlinks) },
+          { via: 'out', pages: this.api.pagesBy('titles', targets.titles, signal) },
+          { via: 'in', pages: this.api.pagesBy('pageids', sample.pageids, signal) },
         ];
         for await (const { via, pages } of alternate(sources)) {
           if (runId !== this.runId) return;
           this.advance(node);
-          if (pages.more) this.expect(node);
-          counts[via] += pages.length;
           for (const page of pages) page.via = via;
           for (const cluster of aggregator.addCandidates(pages)) this.syncCluster(node, cluster, depth);
           this.syncPool(node, aggregator, depth);
-          Object.assign(node.stats, { clusters: aggregator.clusters.size, pool: aggregator.pool.length, out: counts.out });
-          if (backlinks.total != null) node.stats.in = { total: backlinks.total, sampled: backlinks.sampled };
+          Object.assign(node.stats, { clusters: aggregator.clusters.size, pool: aggregator.pool.length });
           this.detail.articleStats(node);
         }
         if (runId !== this.runId) return;
-
-        node.stats.outTruncated = counts.out >= CONFIG.related.linkBatch * CONFIG.related.maxLinkRequests;  // 先頭のみ
-        node.stats.in ??= { total: 0, sampled: 0 };
-        this.detail.articleStats(node);
         this.detail.setBusy(false);
       }
 
