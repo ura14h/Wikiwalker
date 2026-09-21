@@ -310,25 +310,41 @@
     .detail-body { min-height: 88px; padding: 16px 20px 20px; overflow-y: auto; overscroll-behavior: contain; }
     .detail-body p { margin: 0; color: #d1dad5; font: 15px/1.8 var(--serif); }
     .detail-body p + p { margin-top: .9em; }
-    /* 導入部の後ろに節の一覧。節本文はここでは読まず、Wikipedia の該当節へ飛ぶ */
+    /* 導入部の後ろに節の一覧。見出しを選ぶとその場で本文が開く (畳んだ節はグリッドの行の高さ 0fr → 1fr で滑らかに伸びる) */
     .detail-toc { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
     .detail-toc:empty { display: none; }
+    .detail-section-toggle {
+      display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 5px 0; border: 0; background: none;
+      color: #d1dad5; font: 14px/1.5 var(--serif); text-align: left; cursor: pointer; transition: color .2s;
+    }
+    .detail-section-toggle::before { content: counter(toc, decimal-leading-zero); flex: none; color: var(--faint); font: 11px/1.9 ui-monospace, monospace; }
+    .detail-section-toggle .detail-section-chevron { flex: none; align-self: center; width: 12px; height: 12px; margin-left: auto; color: var(--faint); opacity: .8; transition: transform .28s var(--ease-out), color .2s; }
+    .detail-section-toggle:hover, .detail-section.open > .detail-section-toggle { color: var(--accent); }
+    .detail-section.open > .detail-section-toggle .detail-section-chevron { transform: rotate(180deg); color: var(--accent); opacity: 1; }
+    .detail-section-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .32s var(--ease-out); }
+    .detail-section-body > div { min-height: 0; overflow: hidden; opacity: 0; transform: translateY(-4px); transition: opacity .22s, transform .3s var(--ease-out); }
+    .detail-section.open > .detail-section-body { grid-template-rows: 1fr; }
+    .detail-section.open > .detail-section-body > div { opacity: 1; transform: none; transition-delay: .05s; }
+    /* 開いた節の本文は番号の分だけ字下げし、左に細い罫を引いて見出しとの所属を示す */
+    .detail-section-body :is(p, ul, ol, dl, blockquote):not(.detail-subsections) { margin: 4px 0 12px 5px; padding-left: 15px; border-left: 1px solid rgba(211,228,218,.14); color: #d1dad5; font: 14.5px/1.85 var(--serif); }
+    .detail-section-body :is(ul, ol):not(.detail-subsections) { padding-left: calc(15px + 1.2em); }
+    .detail-section-body li { margin: 2px 0; }
+    .detail-section-body p + p { margin-top: 0; }
+    .detail-body cite { font-style: normal; }
+    .detail-section-empty { color: var(--faint); font-size: 12.5px; }
+    /* 入れ子の節 (h3 以下): 番号なし、小さめ、字下げ */
+    .detail-section-body .detail-subsections { margin: 0 0 8px 20px; padding: 0; list-style: none; }
+    .detail-section-body .detail-section-toggle { font-size: 13.5px; padding: 3px 0; }
+    .detail-section-body .detail-section-toggle::before { content: ''; width: 6px; height: 6px; margin: 0 4px 0 2px; align-self: center; border-radius: 50%; background: currentColor; opacity: .55; }
+    @media (prefers-reduced-motion: reduce) {
+      .detail-section-body, .detail-section-body > div, .detail-section-chevron { transition: none; }
+    }
     /* 見出しは項目名ではなく、ひとこと (「この先の 13 節は Wikipedia で読めます」)。数字で構えさせない */
     .detail-toc-title { margin: 0 0 2px; color: var(--muted); font: 13.5px/1.7 var(--serif); }
     .detail-toc ol { margin: 0; padding: 0; list-style: none; counter-reset: toc; }
     .detail-toc li { counter-increment: toc; }
-    .detail-toc-note { margin: 0 0 10px; color: var(--faint); font-size: 11.5px; line-height: 1.6; }
-    .detail-toc a { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; color: #d1dad5; font: 14px/1.5 var(--serif); text-decoration: none; }
-    .detail-toc a::before { content: counter(toc, decimal-leading-zero); flex: none; color: var(--faint); font: 11px/1.9 ui-monospace, monospace; }
     /* 各節は Wikipedia (外部) へ飛ぶ。種別ラベルと同じ矢印アイコンを行末に添えて、その場で開かないことを示す */
-    .detail-toc li a svg { flex: none; align-self: center; width: 11px; height: 11px; margin-left: auto; color: var(--faint); opacity: .7; }
     /* ホバーの規則は種別ラベルの「Wikipediaで読む」と同じ: アクセント色 + 下線 */
-    .detail-toc a:hover { color: var(--accent); }
-    .detail-toc a:hover .detail-toc-label { text-decoration: underline; text-underline-offset: 3px; }  /* 番号と矢印には引かない */
-    .detail-toc a:hover svg { color: var(--accent); opacity: 1; }
-    .detail-toc .detail-toc-more { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--accent-2); font-size: 12.5px; font-weight: 600; text-decoration: none; }
-    .detail-toc .detail-toc-more:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-    .detail-toc .detail-toc-more svg { width: 11px; height: 11px; }
     .detail-body .skeleton { display: grid; gap: 9px; }
     .detail-body .skeleton i { display: block; height: 8px; border-radius: 5px; background: linear-gradient(90deg, rgba(255,255,255,.03), rgba(255,255,255,.09), rgba(255,255,255,.03)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
     .detail-body .skeleton i:nth-child(2) { width: 87%; } .detail-body .skeleton i:nth-child(3) { width: 63%; }
@@ -342,9 +358,27 @@
     .member-list button:hover { color: var(--accent); }
     /* 通信中は上段の背景色と、折りたたみ中でも見える種別ラベル横の回転リングで知らせる */
     .detail.loading .detail-head { background: rgba(127,227,205,.16); border-color: rgba(127,227,205,.55); }
+    /* 収集の進捗バー: 上段の下辺に沿って左から伸びる細い光の線。弱いグローと流れるハイライトで、待つ間の目を引く。
+       伸びは 0 → 1 で単調 (総量の見積もりが増えても戻らない)。完了で右端まで伸び切ってから消える */
+    .detail-head { position: relative; }
+    .detail-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; pointer-events: none; opacity: 0; transition: opacity .5s .3s; }
+    .detail-progress::before {
+      content: ''; position: absolute; inset: 0; width: calc(var(--progress, 0) * 100%); background: var(--accent-2);
+      box-shadow: 0 0 8px rgba(127,227,205,.8), 0 0 18px rgba(127,227,205,.35); transition: width .45s var(--ease-out);
+    }
+    .detail-progress::after {
+      content: ''; position: absolute; top: 0; bottom: 0; width: 28%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+      animation: progress-sheen 1.8s ease-in-out infinite; mix-blend-mode: screen;
+      clip-path: inset(0 calc((1 - var(--progress, 0)) * 100%) 0 0);  /* ハイライトは伸びた分の上だけを流れる */
+    }
+    @keyframes progress-sheen { from { left: -28%; } to { left: 100%; } }
+    .detail.loading .detail-progress { opacity: 1; transition-delay: 0s; }
+    .detail.dock .detail-progress { display: none; }
+    /* 帯 (ノッチ) では横棒が収まらないので、代わりに回転リングで取得中を示す */
     .detail-busy { display: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(127,227,205,.22); border-top-color: var(--accent-2); animation: spin .8s linear infinite; flex: none; }
-    .detail.loading .detail-busy { display: block; }
+    .detail.dock.loading .detail-busy { display: block; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .detail-progress::after { animation: none; } }
     /* 本文の最下段に置く集計。項目は固定で数字だけ差し替わるので、収集の進行で高さが変わらない */
     .detail-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 8px; margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
     .detail-stats div { display: flex; flex-direction: column; justify-content: end; min-width: 0; }
@@ -512,7 +546,7 @@
               <span id="detailTypeText">Wikipedia article</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6"/></svg>
             </a>
-            <i class="detail-busy" id="detailBusy" aria-hidden="true"></i>
+            <i class="detail-busy" aria-hidden="true"></i>
           </span>
           <button class="detail-toggle" id="detailToggle" type="button" aria-controls="detailTitle detailCategories detailBody" aria-expanded="true" aria-label="詳細を閉じる" title="詳細を閉じる">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
@@ -523,6 +557,7 @@
         <p class="detail-definition" id="detailDefinition"></p>
         <button class="detail-read" id="detailRead" type="button">詳しく読む</button>
         <div class="detail-categories" id="detailCategories"></div>
+        <div class="detail-progress" id="detailProgress" role="progressbar" aria-label="関連記事の収集" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"></div>
       </div>
       <div class="detail-body" id="detailBody">
         <div id="detailContent"></div>
@@ -947,14 +982,49 @@
         return new Map((data.query?.pages ?? []).map((raw) => [raw.pageid, (raw.extract ?? '').trim()]));
       }
 
-      // 着陸シートの節構成 (action=parse の目次)。導入部の先に何があるかを示し、節本文は Wikipedia の該当節へ飛ばす
-      async sections({ pageid, title }, signal) {
+      // 着陸シートで読む記事全文。TextExtracts の限定 HTML (段落・箇条書き・上付き下付きなど) を 1 回で取り、見出しで節の木にする。
+      // 表や画像は落ちるが本文は全部入り、10<sup>8</sup> のような表記も保てる。1 記事あたり 1 リクエスト (数十 KB) で、シートを開いているときだけ取る
+      async article({ pageid, title }, signal) {
         const data = await this.request({
-          action: 'parse', ...(pageid ? { pageid } : { page: title }), prop: 'sections', redirects: 1,
+          action: 'query', ...(pageid ? { pageids: pageid } : { titles: title }),
+          prop: 'extracts', exlimit: 1, redirects: 1,
         }, { priority: CONFIG.priority.page, signal });
-        return (data.parse?.sections ?? [])
-          .filter((section) => section.toclevel === 1)
-          .map((section) => ({ line: plainText(section.line), anchor: section.anchor }));
+        return WikiApi.parseExtract(data.query?.pages?.[0]?.extract ?? '');
+      }
+
+      // 限定 HTML を h2〜h6 で節に切り、見出しの深さで入れ子にする。導入部 (最初の見出しより前) は intro に入る。
+      // 本文のブロックは許可した要素だけで組み直し (属性は捨てる)、それ以外の要素は中身だけ残す
+      static parseExtract(html) {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const root = { level: 1, line: '', blocks: [], children: [] };
+        const stack = [root];
+        for (const element of doc.body.children) {
+          const heading = /^H([2-6])$/.exec(element.tagName);
+          if (heading) {
+            const section = { level: Number(heading[1]), line: element.textContent.trim(), blocks: [], children: [] };
+            while (stack.length > 1 && stack[stack.length - 1].level >= section.level) stack.pop();
+            stack[stack.length - 1].children.push(section);
+            stack.push(section);
+          } else {
+            const block = WikiApi.cleanNode(element);
+            if (block?.textContent.trim()) stack[stack.length - 1].blocks.push(block);
+          }
+        }
+        return { intro: root.blocks, sections: root.children };
+      }
+
+      static ALLOWED_TAGS = new Set(['p', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'blockquote', 'b', 'strong', 'i', 'em', 'sup', 'sub', 'cite', 'br']);
+
+      static cleanNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.nodeValue);
+        if (node.nodeType !== Node.ELEMENT_NODE) return null;
+        const tag = node.tagName.toLowerCase();
+        const target = WikiApi.ALLOWED_TAGS.has(tag) ? document.createElement(tag) : document.createDocumentFragment();
+        for (const child of node.childNodes) {
+          const cleaned = WikiApi.cleanNode(child);
+          if (cleaned) target.append(cleaned);
+        }
+        return target;
       }
 
       // 類似記事 (CirrusSearch の morelike:) を抜粋・カテゴリ付きで 1 回で取る。順位は rank に入る。
@@ -982,7 +1052,12 @@
           }, { priority: CONFIG.priority.background, signal });
 
           for (const raw of data.query?.pages ?? []) this.mergePage(pending, raw);
-          if (data.batchcomplete) { yield [...pending.values()]; pending = new Map(); }
+          if (data.batchcomplete) {
+            const batch = [...pending.values()];
+            batch.more = Boolean(data.continue) && i + 1 < CONFIG.related.maxLinkRequests;  // まだ続くか (進捗の見積もりに使う)
+            yield batch;
+            pending = new Map();
+          }
           if (!data.continue) break;
           cont = data.continue;
         }
@@ -1005,6 +1080,7 @@
         const { total, pageids } = await this.backlinkSample(title, signal);
         stats.total = total;
         stats.sampled = pageids.length;
+        stats.onSample?.(pageids.length);  // 標本が決まった (属性の要求数が確定する)
         yield* this.pagesByIds(pageids, signal);
       }
 
@@ -3214,6 +3290,7 @@
         this.type = $('#detailType');
         this.typeText = $('#detailTypeText');
         this.toggle = $('#detailToggle');
+        this.progress = $('#detailProgress');
         this.title = $('#detailTitle');
         this.relation = $('#detailRelation');
         this.definition = $('#detailDefinition');
@@ -3335,8 +3412,9 @@
           p.textContent = 'このページには表示できる概要がありません。';
           this.content.replaceChildren(p);
         }
-        this.showSections(node, node.sections ?? null);
+        this.showSections(node, node.article ?? null);
         this.articleStats(node);
+        this.resetProgress(node);
         this.body.scrollTop = 0;
         if (loading) this.setBusy(true);  // 解除は関連記事の収集側が行う (本文より先に収集が走っていることがある)
 
@@ -3345,54 +3423,71 @@
         this.credit.href = page.url;
       }
 
-      // 導入部の先にある節の一覧。各節は Wikipedia の該当箇所へ飛ぶ。null は未取得 (何も出さない)
-      showSections(node, sections) {
+      // 導入部の先にある節。見出しを選ぶとその場で本文が開く (入れ子の節も同じ)。null は未取得 (何も出さない)
+      showSections(node, article) {
         if (node !== this.shown) return;
-        if (!sections) { this.toc.replaceChildren(); return; }
-        const { url } = node.page;
-        const title = document.createElement('p');
-        title.className = 'detail-toc-title';
-        title.textContent = sections.length ? `この先の ${sections.length} 節は Wikipedia で読めます。` : 'この記事は導入部だけです。';
-        const note = document.createElement('p');
-        note.className = 'detail-toc-note';
-        note.textContent = sections.length ? '節を選ぶと、該当する箇所が新しいタブで開きます。' : '';
-        const list = document.createElement('ol');
-        for (const section of sections.slice(0, 14)) {
-          const item = document.createElement('li');
-          const link = document.createElement('a');
-          link.href = `${url}#${section.anchor}`;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          link.title = `Wikipedia で「${section.line}」の節を読む (新しいタブ)`;
-          link.setAttribute('aria-label', link.title);
-          const label = document.createElement('span');
-          label.className = 'detail-toc-label';
-          label.textContent = section.line;
-          link.append(label, DetailPanel.externalArrow());
-          item.append(link);
-          list.append(item);
+        if (!article) { this.toc.replaceChildren(); return; }
+        const { sections } = article;
+        if (article.intro.length) this.content.replaceChildren(...article.intro.map((block) => block.cloneNode(true)));  // 上付きなどを保った導入部で置き換える
+        // 見出しの列は説明なしで置く (畳んだ見出しが開けることは自明)。節が無いときだけ一言添える
+        const lead = [];
+        if (!sections.length) {
+          const title = document.createElement('p');
+          title.className = 'detail-toc-title';
+          title.textContent = 'この記事は導入部だけです。';
+          lead.push(title);
         }
-        const more = document.createElement('a');
-        more.className = 'detail-toc-more';
-        more.href = url;
-        more.target = '_blank';
-        more.rel = 'noopener noreferrer';
-        more.title = `Wikipedia で「${node.page.title}」を読む (新しいタブ)`;
-        more.append(document.createTextNode(sections.length > 14 ? `ほか ${sections.length - 14} 節を Wikipedia で読む` : '続きを Wikipedia で読む'), DetailPanel.externalArrow());
-        this.toc.replaceChildren(title, note, list, more);
+        const list = document.createElement('ol');
+        for (const section of sections) list.append(DetailPanel.renderSection(section));
+        this.toc.replaceChildren(...lead, list);  // 原文へのリンクは上段の種別ラベルにあるので、ここには置かない
       }
 
-      // 外部 (Wikipedia) へ遷移することを示す矢印。種別ラベルのものと同じ形
-      static externalArrow() {
-        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        arrow.setAttribute('viewBox', '0 0 24 24');
-        arrow.setAttribute('aria-hidden', 'true');
-        arrow.innerHTML = '<path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
-        return arrow;
+      // 畳んだ節。見出しのボタンで開閉し、本文の段落と入れ子の節を中に持つ
+      static renderSection(section) {
+        const item = document.createElement('li');
+        item.className = 'detail-section';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'detail-section-toggle';
+        toggle.setAttribute('aria-expanded', 'false');
+        const label = document.createElement('span');
+        label.className = 'detail-toc-label';
+        label.textContent = section.line;
+        const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chevron.setAttribute('viewBox', '0 0 24 24');
+        chevron.setAttribute('aria-hidden', 'true');
+        chevron.classList.add('detail-section-chevron');
+        chevron.innerHTML = '<path d="m7 9 5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';  // 畳んでいるときは下向き (開く)、開いたら 180° 回して上向き (閉じる)。シートの開閉ボタンと同じ対
+        toggle.append(label, chevron);
+        const body = document.createElement('div');
+        body.className = 'detail-section-body';
+        const inner = document.createElement('div');
+        inner.inert = true;  // 畳んでいる間はフォーカスも読み上げも通さない
+        for (const block of section.blocks) inner.append(block.cloneNode(true));
+        if (section.children.length) {
+          const nested = document.createElement('ol');
+          nested.className = 'detail-subsections';
+          for (const child of section.children) nested.append(DetailPanel.renderSection(child));
+          inner.append(nested);
+        }
+        if (!section.blocks.length && !section.children.length) {
+          const empty = document.createElement('p');
+          empty.className = 'detail-section-empty';
+          empty.textContent = 'この節には表示できる本文がありません。';
+          inner.append(empty);
+        }
+        body.append(inner);
+        toggle.addEventListener('click', () => {
+          const open = item.classList.toggle('open');
+          toggle.setAttribute('aria-expanded', String(open));
+          inner.inert = !open;
+        });
+        item.append(toggle, body);
+        return item;
       }
 
       showCluster(node, parent) {
-        this.open('sheet');
+        this.open(this.isOpen ? this.mode : 'sheet');  // 帯に畳んであれば帯のまま (記事と同じく、形は利用者の選択)
         this.shown = node;
         this.typeText.textContent = node.kind === 'cluster' ? 'カテゴリ' : 'その他';
         this.type.removeAttribute('href');
@@ -3439,6 +3534,25 @@
       setBusy(busy) {
         this.panel.classList.toggle('loading', busy);
         this.panel.setAttribute('aria-busy', String(busy));
+        if (!busy) this.setProgress(this.shown, 1);
+      }
+
+      // 別のノードを出すとき、バーを前のノードの長さから縮めて見せずに、そのノードの現在値へ即座に置く
+      resetProgress(node) {
+        this.progress.style.transition = 'none';
+        this.progress.style.setProperty('--progress', (node.__progressShown ?? 0).toFixed(3));
+        void this.progress.offsetWidth;
+        this.progress.style.transition = '';
+      }
+
+      // 収集の進捗 (0〜1)。値はノードに持ち (まだ表示していない到着中の星でも進む)、戻らないように単調にする。バーは表示中のノードだけ
+      setProgress(node, fraction) {
+        if (!node) return;
+        const value = Math.min(1, Math.max(node.__progressShown ?? 0, fraction));
+        node.__progressShown = value;
+        if (node !== this.shown) return;
+        this.progress.style.setProperty('--progress', value.toFixed(3));
+        this.progress.setAttribute('aria-valuenow', value.toFixed(2));
       }
 
       // 記事の集計 (カテゴリ = 惑星数、その他 = 惑星に入らなかった記事数、出リンク、被リンク)。
@@ -3869,6 +3983,7 @@
         this.status.hide();
 
         const placed = Boolean(node);
+        if (placed && node.__progress?.page) { node.__progress.page = false; this.advance(node); }  // 記事詳細が届いた
         node ??= this.placeArticle(page, fromHistory);
         node.page = { ...node.page, ...Wikiwalker.detailedPage(page) };  // 抜粋付きの詳細で上書きする
         this.showCurrent(node);
@@ -3886,19 +4001,25 @@
       // 現在地の記事をパネルに出す。ホバーのない端末では帯 (定義文 + 読む) から始め、シートは利用者が開く
       showCurrent(node, { loading = false, mode = null } = {}) {
         if (this.warpStart != null || this.landing === node) return;  // 初期画面からの到着中はまだ出さない (arriveHero が開く)
-        mode ??= this.detail.shown === node && this.detail.isOpen ? this.detail.mode : this.touch.matches ? 'dock' : 'sheet';
+        // 開いているパネルの形 (シート／帯) は利用者の選択なので、別の記事を選んでも変えない。帯に畳んでいれば帯のまま取得中を示す
+        mode ??= this.detail.isOpen ? this.detail.mode : this.touch.matches ? 'dock' : 'sheet';
         this.detail.showArticle(node, { loading, relation: this.relationOf(node), mode });
       }
 
-      // 着陸シートの節構成。導入部より先に何があるかを示す (シートを開いているときだけ取る)
+      // 着陸シートで読む記事全文 (節ごとに畳んだ形)。シートを開いているときだけ取る
       async loadSections(node, signal) {
-        if (node.sections || this.detail.mode !== 'sheet') return;
+        if (node.article || node.__articleLoading || this.detail.mode !== 'sheet') return;
+        node.__articleLoading = true;
+        this.expect(node);
         try {
-          node.sections = await this.api.sections(node.page, signal);
+          node.article = await this.api.article(node.page, signal);
         } catch (error) {
-          if (!isAbort(error)) node.sections = [];
+          if (!isAbort(error)) node.article = { intro: [], sections: [] };
+        } finally {
+          node.__articleLoading = false;
         }
-        if (node.sections) this.detail.showSections(node, node.sections);
+        this.advance(node);
+        if (node.article) this.detail.showSections(node, node.article);
       }
 
       startCollecting(node, runId, signal) {
@@ -3912,6 +4033,27 @@
         });
       }
 
+      // ---- 収集の進捗 -------------------------------------------------------
+      // 記事を選んでから惑星が出そろうまでの要求を単位として数える: 記事詳細 1、全文 1、類似 1、出リンクのバッチ 1〜6、
+      // 被リンクの標本 1 + 属性 1〜2。出リンクの続きと被リンクの属性数は途中で分かるので、見積もりをそのとき増減する
+
+      startProgress(node) {
+        node.__progress = { done: 0, expected: 0 };
+        node.__progressShown = 0;
+      }
+
+      expect(node, units = 1) {
+        if (!node.__progress) return;
+        node.__progress.expected += units;
+        this.detail.setProgress(node, node.__progress.done / Math.max(1, node.__progress.expected));
+      }
+
+      advance(node, units = 1) {
+        if (!node.__progress) return;
+        node.__progress.done += units;
+        this.detail.setProgress(node, node.__progress.done / Math.max(1, node.__progress.expected));
+      }
+
       // 記事ノードをグラフに置き (あれば再利用)、選択状態・カメラ・パネル・履歴を更新する
       placeArticle(page, fromHistory) {
         const parent = this.current;
@@ -3920,6 +4062,8 @@
           ?? this.graph.addNow(Wikiwalker.articleNode(page, parent ? parent.depth + 1 : 0), parent, 'member');
         this.current = node;
         node.visited = true;  // 訪れた記事星は、遠ざかっても惑星ごと銀河として残る
+        this.startProgress(node);
+        if (!node.page.detailed) { node.__progress.page = true; this.expect(node); }  // 記事詳細 (先読み済みなら数えない)
         this.graph.select(node);
         this.graph.focus(node);
         $('#intro').classList.add('hidden');
@@ -3944,6 +4088,7 @@
         node.stats = {};  // 集計は詳細パネルの最下段に出す。中断して再開したときは取り直す
         this.graph.refreshStyles();
         this.detail.setBusy(true);
+        this.expect(node, 5);  // 類似 1 + 出リンク 1 (続きは後で足す) + 被リンクの標本 1 + 属性 2 (標本が決まったら直す)
 
         const aggregator = new RelatedAggregator(CONFIG.related);
         aggregator.exclude(node.page.pageid);
@@ -3952,6 +4097,7 @@
         // 1. 類似記事 (morelike): 関連度の高い順に直接ノードにする。残りは惑星の候補へ
         const similar = (await this.api.similarPages(node.page.title, signal)).filter((page) => page.pageid !== node.page.pageid && !page.disambiguation);
         if (runId !== this.runId) return;
+        this.advance(node);
         const direct = similar.slice(0, CONFIG.related.directMax);
         for (const page of direct) {
           aggregator.exclude(page.pageid);
@@ -3966,13 +4112,15 @@
         //    同じ歩幅で交互に集約する。惑星の枠 (maxClusters) は先着順に埋まるので、片方を先に流し切ると
         //    もう片方のカテゴリが惑星になる機会を失う。交互に流せば実際のカテゴリ共有数で競い、配分はデータ次第になる
         const counts = { out: 0, in: 0 };
-        const backlinks = {};
+        const backlinks = { onSample: (sampled) => { this.expect(node, Math.ceil(sampled / CONFIG.related.pageBatch) - 2); this.advance(node); } };
         const sources = [
           { via: 'out', pages: this.api.linkedPages(node.page.pageid, signal) },
           { via: 'in', pages: this.api.backlinkPages(node.page.title, signal, backlinks) },
         ];
         for await (const { via, pages } of alternate(sources)) {
           if (runId !== this.runId) return;
+          this.advance(node);
+          if (pages.more) this.expect(node);
           counts[via] += pages.length;
           for (const page of pages) page.via = via;
           for (const cluster of aggregator.addCandidates(pages)) this.syncCluster(node, cluster, depth);
