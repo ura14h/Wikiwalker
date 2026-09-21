@@ -2886,15 +2886,16 @@
         if (window.matchMedia('(hover: hover)').matches) requestAnimationFrame(() => { if (this.hero) $('#searchInput').focus(); });
       }
 
-      // 入力が始まったら intro ごと持ち上げて、検索欄を上端の定位置 (topbar の内側上端) に合わせる
+      // 入力が始まったら intro ごと持ち上げて、検索欄を上端の定位置 (topbar の内側上端) に合わせる。
+      // 入力を全部消しても中央には戻さない: IME の候補ウィンドウは入力欄の移動に追従しないので、
+      // 途中で欄が動くと候補が取り残される。中央に戻るのは enterHero で初期画面に入り直すときだけ
       liftHero(active) {
-        if (!this.hero) return;
+        if (!this.hero || !active) return;
         const intro = $('#intro');
-        if (active) {
-          const target = this.topbar.getBoundingClientRect().top + parseFloat(getComputedStyle(this.topbar).paddingTop);
-          intro.style.setProperty('--lift-top', `${target - this.introSlot.offsetTop}px`);
-        }
-        intro.classList.toggle('lifted', active);
+        if (intro.classList.contains('lifted')) return;
+        const target = this.topbar.getBoundingClientRect().top + parseFloat(getComputedStyle(this.topbar).paddingTop);
+        intro.style.setProperty('--lift-top', `${target - this.introSlot.offsetTop}px`);
+        intro.classList.add('lifted');
       }
 
       // 最初の記事を選んだ瞬間に、星間航行がワープに入り、検索欄は上端の定位置へ飛ぶ。
