@@ -3082,7 +3082,7 @@
         clearTimeout(this.dwellTimer);
         clearTimeout(this.lingerTimer);
         clearTimeout(this.hideTimer);
-        this.candidate = node && node !== this.graph.selected ? node : null;  // 現在地の星は着陸済みなのでカードを出さない
+        this.candidate = node ?? null;  // 現在地の星にも出す (シートを畳んでいるときや惑星を開いているときに、本記事の一瞥が欲しい)
         this.hoverAt = performance.now();
         if (!this.candidate) {
           if (this.card.visible) this.hideTimer = setTimeout(() => this.card.hide(), this.cfg.hideDelay);
