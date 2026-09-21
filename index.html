@@ -156,8 +156,8 @@
        (星間航行も同じ向きに視差で流れる)。検索欄の DOM は動かさないので IME の変換中でも安全。--lift-top は JS が測って入れる */
     .intro.lifted { top: var(--lift-top); transform: translate(-50%, 0); }
     .app.hero .intro { z-index: 11; }  /* 持ち上げた検索欄が topbar の暗いグラデーションの下に入らないように */
-    .app.hero :is(.brand, .attribution, .controls-hint) { opacity: 0; pointer-events: none; }
-    .brand, .attribution, .controls-hint { transition: opacity .35s .3s; }
+    .app.hero :is(.brand, .attribution) { opacity: 0; pointer-events: none; }
+    .brand, .attribution { transition: opacity .35s .3s; }
     .intro-kicker { color: var(--accent-2); font-size: 12px; text-transform: uppercase; letter-spacing: .24em; }
     .intro h1 { margin: 18px 0 14px; font: 400 clamp(38px, 6vw, 72px)/.95 var(--serif); letter-spacing: -.035em; }
     .intro h1 em { color: var(--accent); font-style: normal; }
@@ -193,8 +193,10 @@
     .status.error .status-dot { background: var(--danger); box-shadow: 0 0 12px var(--danger); animation: none; }
     @keyframes pulse { 50% { opacity: .35; transform: scale(.72); } }
 
-    .legend {
-      position: absolute; z-index: 5; left: 22px; top: 104px; padding: 12px 14px;
+    /* 左上の HUD: 凡例と、その下の操作案内。どちらも同じ小さな箱で、探索中だけ見える */
+    .hud { position: absolute; z-index: 5; left: 22px; top: 104px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+    .legend, .controls-hint {
+      padding: 12px 14px;
       color: var(--muted); background: rgba(7,11,16,.58); border: 1px solid rgba(211,228,218,.09);
       border-radius: 12px; font-size: 11px; line-height: 1.8; backdrop-filter: blur(10px); opacity: 0; transition: opacity .3s;
     }
@@ -205,10 +207,15 @@
     .legend-dot.pool { width: 5px; height: 5px; margin: 0 1.5px; background: #7fdbe0; box-shadow: 0 0 0 2px var(--space), 0 0 0 3px #7fdbe0; }
     .legend-dot.galaxy { width: 12px; height: 7px; margin: 0 -2px; border-radius: 50%; background: radial-gradient(ellipse at center, #d8d6e2 0, rgba(125,144,184,.7) 35%, rgba(125,144,184,0) 72%); box-shadow: none; }
 
-    .controls-hint {
-      position: absolute; z-index: 5; left: 50%; bottom: 20px; transform: translateX(-50%);
-      color: var(--faint); font-size: 11px; letter-spacing: .035em; white-space: nowrap; pointer-events: none;
-    }
+    /* 操作案内: 操作 → 入力の 2 列。マウスのある端末で、凡例が見えている間だけ */
+    .controls-hint { display: grid; grid-template-columns: auto auto; column-gap: 14px; margin: 0; letter-spacing: .035em; white-space: nowrap; }
+    .controls-hint dt { color: var(--faint); }
+    .controls-hint dd { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--muted); }
+    .controls-hint .mouse { width: 11px; height: 16px; flex: none; color: var(--faint); }
+    .controls-hint .hint-alt { display: inline-flex; align-items: center; gap: 4px; color: var(--faint); }
+    .controls-hint kbd { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border: 1px solid rgba(211,228,218,.25); border-radius: 4px; font: 10px/1 ui-monospace, monospace; color: var(--muted); }
+    .legend.visible + .controls-hint { opacity: 1; }
+    @media (hover: none) { .controls-hint { display: none; } }
 
     /* ---- 覗きカード ----------------------------------------------------
        星の上でカーソルが止まったときだけ、星の左に浮かぶ (シートが右にあるので左で釣り合わせる)。記事名と定義文で「何の記事か」を一息で答える。
@@ -266,10 +273,8 @@
     /* 入場アニメーションは非表示から開くときだけ (entering)。開いたままの切り替えは setMode が実寸を補間する */
     .detail.sheet.entering { animation: sheet-in .55s var(--ease-out) both; }  /* 右から滑り込ませず、その場でゆっくり現れる (視線を引っ張らない) */
     .detail.dock.entering { animation: panel-in .3s var(--ease-out) both; }
-    /* シートが右を覆う間、下端の権利表示と操作案内はシートの左の領域に収める (グラフの注視点も同じ領域の中央に寄せている) */
+    /* シートが右を覆う間、下端の権利表示はシートの左の領域に収める (グラフの注視点も同じ領域の中央に寄せている) */
     .app:has(.detail.open.sheet) .attribution { max-width: min(560px, calc(100% - 44px - 452px)); }
-    .app:has(.detail.open.sheet) .controls-hint { left: calc((100% - 452px) / 2); }
-    @media (max-width: 1632px) { .app:has(.detail.open.sheet) .controls-hint { display: none; } }  /* 1180px (権利表示と重なる幅) + シート分 */
     .detail.dock { bottom: calc(22px + env(safe-area-inset-bottom)); width: min(330px, calc(100% - 44px)); }
     /* 変形中は中身を少し遅らせて現し、箱の伸縮が先に見えるようにする。高さの上限は補間の邪魔になるので外す */
     .detail.morphing { max-height: none !important; }
@@ -417,9 +422,6 @@
     .language-empty { grid-column: 1/-1; padding: 30px; color: var(--muted); text-align: center; font-size: 13px; }
 
     /* ---- レスポンシブ -------------------------------------------------- */
-    @media (max-width: 1180px) {
-      .controls-hint { display: none; }  /* 権利表示と横に重なる幅では出さない */
-    }
     @media (max-width: 840px) {
       .topbar { grid-template-columns: 1fr auto; gap: 10px; padding: calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 14px calc(14px + env(safe-area-inset-left)); }
       .brand { display: none; }
@@ -427,12 +429,12 @@
       .history { grid-column: 2; }
       .history-position { display: none; }
       .status { top: 78px; }
-      .legend { top: 84px; left: 14px; }
+      .hud { top: 84px; left: 14px; }
+      .controls-hint { display: none; }  /* 狭い画面では凡例だけ */
       /* 狭い画面では右の柱ではなく下からのシートにする。帯も同じ場所に出る */
       .detail, .detail.sheet, .detail.dock { right: calc(14px + env(safe-area-inset-right)); bottom: calc(72px + env(safe-area-inset-bottom)); width: min(420px, calc(100% - 28px)); }
       .detail.sheet { top: auto; max-height: 58vh; animation-name: panel-in; }
       .attribution { left: calc(14px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom)); max-width: calc(100% - 28px); }
-      .controls-hint { display: none; }
       .language-grid { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 540px) {
@@ -444,7 +446,7 @@
       .search-icon { margin-left: 10px; }
       .intro { --base-y: -43%; }
       .intro p { font-size: 14px; padding: 0 20px; }
-      .legend { top: 76px; }
+      .hud { top: 76px; }
       .detail h2 { font-size: 22px; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -533,11 +535,26 @@
       <div class="peek-hint" id="peekHint">クリックで詳しく読む</div>
     </div>
 
-    <div class="legend" id="legend" aria-hidden="true">
-      <div class="legend-row"><i class="legend-dot"></i><span>記事</span></div>
-      <div class="legend-row"><i class="legend-dot cluster"></i><span>共通カテゴリの関連記事</span></div>
-      <div class="legend-row"><i class="legend-dot pool"></i><span>その他の関連記事</span></div>
-      <div class="legend-row"><i class="legend-dot galaxy"></i><span>遠くの星系 (訪れた記事)</span></div>
+    <!-- マウスの絵記号: 押すボタン (左・右) やホイールだけを明るく塗る -->
+    <svg hidden aria-hidden="true">
+      <symbol id="mouse" viewBox="0 0 14 20"><rect x="1.5" y="1.5" width="11" height="17" rx="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M7 1.5V9M1.5 9h11" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+      <symbol id="mouse-left" viewBox="0 0 14 20"><path d="M7 1.5A5.5 5.5 0 0 0 1.5 7v2H7Z" fill="var(--accent)"/><use href="#mouse"/></symbol>
+      <symbol id="mouse-right" viewBox="0 0 14 20"><path d="M7 1.5A5.5 5.5 0 0 1 12.5 7v2H7Z" fill="var(--accent)"/><use href="#mouse"/></symbol>
+      <symbol id="mouse-wheel" viewBox="0 0 14 20"><use href="#mouse"/><rect x="5.6" y="3.6" width="2.8" height="4.4" rx="1.4" fill="var(--accent)"/></symbol>
+    </svg>
+    <div class="hud">
+      <div class="legend" id="legend" aria-hidden="true">
+        <div class="legend-row"><i class="legend-dot"></i><span>記事</span></div>
+        <div class="legend-row"><i class="legend-dot cluster"></i><span>共通カテゴリの関連記事</span></div>
+        <div class="legend-row"><i class="legend-dot pool"></i><span>その他の関連記事</span></div>
+        <div class="legend-row"><i class="legend-dot galaxy"></i><span>遠くの星系 (訪れた記事)</span></div>
+      </div>
+      <dl class="controls-hint" aria-hidden="true">
+        <dt>回転</dt><dd><svg class="mouse"><use href="#mouse-left"/></svg>ドラッグ</dd>
+        <dt>移動</dt><dd><svg class="mouse"><use href="#mouse-right"/></svg>ドラッグ <span class="hint-alt">または ⇧ + <svg class="mouse"><use href="#mouse-left"/></svg></span></dd>
+        <dt>拡大</dt><dd><svg class="mouse"><use href="#mouse-wheel"/></svg>ホイール</dd>
+        <dt>検索</dt><dd><kbd>/</kbd> キー</dd>
+      </dl>
     </div>
 
     <div class="attribution">
@@ -545,7 +562,6 @@
       出典: <a id="wikipediaCredit" href="https://ja.wikipedia.org/" target="_blank" rel="noopener">Wikipedia contributors</a><br>
       Wikipedia® は Wikimedia Foundation の登録商標です。本アプリは同財団とは関係ありません。
     </div>
-    <div class="controls-hint">左ドラッグ: 回転　•　右ドラッグ（または Shift＋左）: 平行移動　•　ホイール: ズーム　•　/ : 検索</div>
 
     <dialog id="languageDialog">
       <div class="language-dialog-head"><h2>Wikipediaの言語</h2><button class="dialog-close" id="dialogClose" type="button" aria-label="閉じる">×</button></div>
@@ -637,7 +653,7 @@
         frameCrowdWeight: .2,     // 重なる隣接ノード 1 個あたりの評価値の割増
         framePadding: 8,      // ノードの半径とラベル分の余白 (空間単位)
         // 画面に重なる UI。自動フレーミングではこれらが覆う上下の帯を描画領域から除外して、ノードが隠れないようにする
-        frameObstacles: { top: '.topbar', bottom: '.attribution, .controls-hint' },
+        frameObstacles: { top: '.topbar', bottom: '.attribution' },
         hitRadius: 8.5,       // 見た目を変えずにクリックしやすくする最小当たり半径
         clickTolerance: 6,    // この移動量 (px) までは手ぶれとしてクリックを許容する
         relatedBrightness: .42, // 選択ノードに直結するノードを霧の中から少し浮かせる
