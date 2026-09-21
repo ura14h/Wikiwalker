@@ -575,7 +575,7 @@
         dwell: 250,          // 同じ星の上でカーソルが静止してから、カードを出すまで (ms)
         calmSpeed: .25,      // これより速い動き (px/ms) は「通過」。止まってから dwell を数える
         hideDelay: 160,      // 星から離れてカードを消すまでの猶予 (ms)。隣の星へ移るときのちらつきを防ぐ
-        linger: 900,         // さらにこれだけ留まったら「興味の兆し」とみなし、着陸用の記事詳細を先読みする (ms)
+        linger: 900,         // さらにこれだけ留まったら「興味の兆し」とみなし、着陸用の記事詳細と類似記事を先読みする (ms)
         batch: 20,           // 定義文をまとめて取る件数 (同じ星系の未取得の星を同乗させる。TextExtracts の exlimit 上限)
         budget: { capacity: 3, refill: 1000 },  // ホバー起因の要求の予算 (トークンバケット): 貯金 3 本、1 本/秒で回復。枯れたらローカル情報だけで出す
         offset: 18,          // 星とカードの間隔 (px)
@@ -927,15 +927,16 @@
           .map((section) => ({ line: plainText(section.line), anchor: section.anchor }));
       }
 
-      // 類似記事 (CirrusSearch の morelike:) を抜粋・カテゴリ付きで 1 回で取る。順位は rank に入る
-      async similarPages(title, signal) {
+      // 類似記事 (CirrusSearch の morelike:) を抜粋・カテゴリ付きで 1 回で取る。順位は rank に入る。
+      // URL は優先度に依らないので、ホバーで先読みしたものが選択時にキャッシュで当たる
+      async similarPages(title, signal, { priority = CONFIG.priority.page } = {}) {
         const data = await this.request({
           action: 'query', generator: 'search', gsrsearch: `morelike:${title.replaceAll(' ', '_')}`,
           gsrnamespace: 0, gsrlimit: CONFIG.related.similarLimit,
           prop: 'info|extracts|pageprops|categories', inprop: 'url',
           exintro: 1, explaintext: 1, exchars: 220, exlimit: CONFIG.related.similarLimit,
           ppprop: 'disambiguation', clshow: '!hidden', cllimit: 'max',
-        }, { priority: CONFIG.priority.page, signal });
+        }, { priority, signal });
         return (data.query?.pages ?? []).map((raw) => this.normalizePage(raw)).sort((a, b) => a.rank - b.rank);
       }
 
@@ -3739,12 +3740,21 @@
         return primary ? `${primary} · ${reason}` : reason;
       }
 
-      // 長く留まった星 (興味の兆し): 予算があれば着陸用の記事詳細を先に取っておき、クリックした瞬間にシートが埋まるようにする
+      // 長く留まった星 (興味の兆し): 予算があれば着陸用の記事詳細と、探索の最初の段になる類似記事を先に取っておく。
+      // クリックした瞬間にシートが埋まり、到着と同時に類似星が現れ、時間のかかる出リンク・被リンクの収集にすぐ入れる。
+      // 通信キューは 1 本ずつなので、選択後に取ると記事詳細 → 類似の 2 本分 (1 秒前後) を待つことになる
       prefetchLanding(node, budget) {
-        if (node.kind !== 'article' || node.page.detailed || !budget.take()) return;
-        this.api.page(node.page, undefined, { priority: CONFIG.priority.peek })
-          .then((page) => { if (this.graph.get(node.id) === node) Object.assign(node.page, Wikiwalker.detailedPage(page)); })
-          .catch(() => { /* 先読みの失敗は黙って諦める。クリック時に改めて取る */ });
+        if (node.kind !== 'article') return;
+        if (!node.page.detailed && budget.take()) {
+          this.api.page(node.page, undefined, { priority: CONFIG.priority.peek })
+            .then((page) => { if (this.graph.get(node.id) === node) Object.assign(node.page, Wikiwalker.detailedPage(page)); })
+            .catch(() => { /* 先読みの失敗は黙って諦める。クリック時に改めて取る */ });
+        }
+        if (!node.expanded && !node.__similarPrefetched && budget.take()) {
+          node.__similarPrefetched = true;  // 結果は応答キャッシュに残るので、ここでは重複要求を防ぐだけ
+          this.api.similarPages(node.page.title, undefined, { priority: CONFIG.priority.peek })
+            .catch(() => { node.__similarPrefetched = false; });
+        }
       }
 
       // 履歴で戻る／進む: 記事星なら再選択、惑星・その他なら再び中央に据える (どちらも履歴には積まない)
