@@ -268,14 +268,13 @@
       box-shadow: var(--shadow); backdrop-filter: blur(22px); overflow: hidden;
     }
     .detail.open { display: flex; }
-    /* シートの枠は画面の枠に合わせる: 右 22px・下 22px は帯や凡例の余白と同じ、上 104px は凡例の上端と同じ地平線 */
-    .detail.sheet { top: calc(104px + env(safe-area-inset-top)); bottom: calc(22px + env(safe-area-inset-bottom)); width: min(430px, calc(100% - 44px)); }
+    /* シートの枠は画面の枠に合わせる: 右 22px・下 22px は帯や凡例の余白と同じ、上 104px は凡例の上端と同じ地平線。
+       幅が狭く権利表示がシートの左に収まらないときは、権利表示が画面下を占め、シートと帯はその上に乗る (--credit-height は JS が実寸から入れる) */
+    .detail.sheet { top: calc(104px + env(safe-area-inset-top)); bottom: calc(22px + var(--credit-height, 0px) + env(safe-area-inset-bottom)); width: min(430px, calc(100% - 44px)); }
     /* 入場アニメーションは非表示から開くときだけ (entering)。開いたままの切り替えは setMode が実寸を補間する */
     .detail.sheet.entering { animation: sheet-in .55s var(--ease-out) both; }  /* 右から滑り込ませず、その場でゆっくり現れる (視線を引っ張らない) */
     .detail.dock.entering { animation: panel-in .3s var(--ease-out) both; }
-    /* シートが右を覆う間、下端の権利表示はシートの左の領域に収める (グラフの注視点も同じ領域の中央に寄せている) */
-    .app:has(.detail.open.sheet) .attribution { max-width: min(560px, calc(100% - 44px - 452px)); }
-    .detail.dock { bottom: calc(22px + env(safe-area-inset-bottom)); width: min(330px, calc(100% - 44px)); }
+    .detail.dock { bottom: calc(22px + var(--credit-height, 0px) + env(safe-area-inset-bottom)); width: min(330px, calc(100% - 44px)); }
     /* 変形中は中身を少し遅らせて現し、箱の伸縮が先に見えるようにする。高さの上限は補間の邪魔になるので外す */
     .detail.morphing { max-height: none !important; }
     .detail.morphing .detail-body, .detail.morphing .detail-categories { animation: content-in var(--morph) var(--ease-out) both; }
@@ -393,6 +392,7 @@
     @keyframes notch-in { from { opacity: 0; transform: translateX(12px); } }
 
     /* ---- 権利表示 ------------------------------------------------------ */
+    /* 広い画面では左下に張り付く。狭い画面 (1180px 以下) では画面下を占め、シートと帯がその上に乗る (レスポンシブ参照) */
     .attribution {
       position: absolute; z-index: 8; left: calc(22px + env(safe-area-inset-left)); bottom: calc(18px + env(safe-area-inset-bottom)); max-width: min(560px, calc(100% - 44px));
       color: #929d98; font-size: 11px; line-height: 1.65;
@@ -422,6 +422,12 @@
     .language-empty { grid-column: 1/-1; padding: 30px; color: var(--muted); text-align: center; font-size: 13px; }
 
     /* ---- レスポンシブ -------------------------------------------------- */
+    /* 権利表示がシートの左に収まらない幅では、権利表示を画面下いっぱいにし、シートと帯をその上に乗せる (--credit-height はこの幅でだけ効く) */
+    :root { --credit-height: 0px; }
+    @media (max-width: 1180px) {
+      :root { --credit-height: var(--credit-measured, 0px); }
+      .attribution { right: calc(22px + env(safe-area-inset-right)); max-width: none; }
+    }
     @media (max-width: 840px) {
       .topbar { grid-template-columns: 1fr auto; gap: 10px; padding: calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 14px calc(14px + env(safe-area-inset-left)); }
       .brand { display: none; }
@@ -432,9 +438,9 @@
       .hud { top: 84px; left: 14px; }
       .controls-hint { display: none; }  /* 狭い画面では凡例だけ */
       /* 狭い画面では右の柱ではなく下からのシートにする。帯も同じ場所に出る */
-      .detail, .detail.sheet, .detail.dock { right: calc(14px + env(safe-area-inset-right)); bottom: calc(72px + env(safe-area-inset-bottom)); width: min(420px, calc(100% - 28px)); }
+      .detail, .detail.sheet, .detail.dock { right: calc(14px + env(safe-area-inset-right)); bottom: calc(14px + var(--credit-height, 0px) + env(safe-area-inset-bottom)); width: min(420px, calc(100% - 28px)); }
       .detail.sheet { top: auto; max-height: 58vh; animation-name: panel-in; }
-      .attribution { left: calc(14px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom)); max-width: calc(100% - 28px); }
+      .attribution { left: calc(14px + env(safe-area-inset-left)); right: calc(14px + env(safe-area-inset-right)); bottom: calc(8px + env(safe-area-inset-bottom)); }
       .language-grid { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 540px) {
@@ -1593,6 +1599,9 @@
       resize() {
         this.graph.width(window.innerWidth).height(window.innerHeight);
         this.applyViewShift();
+        // ライブラリは幅・高さの反映を少し遅らせて行い、そのときカメラの縦横比と投影を自分で設定し直す。
+        // 先に入れた視野の寄せが古い寸法のまま残るので、その後でもう一度掛け直す
+        requestAnimationFrame(() => this.applyViewShift());
       }
 
       // 重い準備を先に済ませる: 惑星のテクスチャ生成と、恒星・惑星・銀河のシェーダーのコンパイル。
@@ -1653,15 +1662,15 @@
         this.viewShiftFrame = requestAnimationFrame(tick);
       }
 
+      // 縦横比は常に実際の描画領域のもの (ライブラリが設定し直す値と同じ) にし、寄せは同じ大きさの全体像の中で窓を shift px 右へ
+      // ずらす形で掛ける。画角は変わらず、投影が横にずれるだけなので、ウィンドウの幅を変えても星図が歪まない
       applyViewShift() {
         const camera = this.graph.camera();
         const width = window.innerWidth, height = window.innerHeight;
         const shift = Math.round(this.viewShift);
-        if (shift === 0) { camera.clearViewOffset(); camera.aspect = width / height; }
-        else {
-          camera.aspect = (width + 2 * shift) / height;  // 仮想キャンバスの縦横比。縦の画角は変わらないので拡大率は同じ
-          camera.setViewOffset(width + 2 * shift, height, 2 * shift, 0, width, height);
-        }
+        camera.aspect = width / height;
+        if (shift === 0) camera.clearViewOffset();
+        else camera.setViewOffset(width, height, shift, 0, width, height);
         camera.updateProjectionMatrix();
       }
 
@@ -3558,6 +3567,11 @@
         });
         this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅
         window.addEventListener('resize', () => this.syncViewShift());
+        // 権利表示の実寸を CSS 変数に入れ、シートと帯がその上に乗るようにする (幅や言語で行数が変わる)
+        const credit = $('.attribution');
+        const syncCredit = () => document.documentElement.style.setProperty('--credit-measured', `${credit.offsetHeight + 10}px`);  // 上に 10px 空ける
+        new ResizeObserver(syncCredit).observe(credit);
+        syncCredit();
         this.touch = window.matchMedia('(hover: none)');         // ホバーのない端末: タップ = 帯 (覗きカードの代わり)、「読む」= シート
         this.history = new HistoryNav({ onMove: (id) => this.revisit(this.graph.recall(id)) });  // 銀河に畳まれた星なら開いて取り出す
         this.starfield = new Starfield($('#starfield'), CONFIG.starfield);
