@@ -196,9 +196,10 @@
     }
     .legend.visible { opacity: 1; }
     .legend-row { display: flex; align-items: center; gap: 8px; }
-    .legend-dot { width: 8px; height: 8px; border-radius: 50%; background: #ffd48a; box-shadow: 0 0 9px #ffd48a; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; background: #ffe9c4; box-shadow: 0 0 9px #ffe9c4; }
     .legend-dot.cluster { width: 5px; height: 5px; margin: 0 1.5px; background: #9cc1ff; box-shadow: none; }
     .legend-dot.pool { width: 5px; height: 5px; margin: 0 1.5px; background: #7fdbe0; box-shadow: 0 0 0 2px var(--space), 0 0 0 3px #7fdbe0; }
+    .legend-dot.galaxy { width: 12px; height: 7px; margin: 0 -2px; border-radius: 50%; background: radial-gradient(ellipse at center, #d8d6e2 0, rgba(125,144,184,.7) 35%, rgba(125,144,184,0) 72%); box-shadow: none; }
 
     .controls-hint {
       position: absolute; z-index: 5; left: 50%; bottom: 20px; transform: translateX(-50%);
@@ -532,6 +533,7 @@
       <div class="legend-row"><i class="legend-dot"></i><span>記事</span></div>
       <div class="legend-row"><i class="legend-dot cluster"></i><span>共通カテゴリの関連記事</span></div>
       <div class="legend-row"><i class="legend-dot pool"></i><span>その他の関連記事</span></div>
+      <div class="legend-row"><i class="legend-dot galaxy"></i><span>遠くの星系 (訪れた記事)</span></div>
     </div>
 
     <div class="attribution">
@@ -638,11 +640,46 @@
         labelDepthPower: .6,
         labelMaxScale: 2.2,
         hoverDuration: 100,    // ホバーラベルの拡縮が完了するまでの時間 (ms)
-        // 恒星 (記事) は暖色。先頭は選択中の白熱色、以降は探索深度で巡回する
-        palette: ['#fff6df', '#ffd48a', '#ffb866', '#ff9d7a', '#f5c56e', '#ffc9a0'],
+        // 恒星 (記事) は温白。先頭は選択中の白熱色、以降は探索深度で巡回する (赤みは寒色の惑星・銀河との対比に必要な分だけ)
+        palette: ['#fff8ea', '#ffe9c4', '#ffd9a8', '#ffcbb0', '#f8e0b4', '#ffdcc4'],
         clusterColor: '#9cc1ff',  // 惑星 (共通カテゴリ): 寒色
         poolColor: '#7fdbe0',     // 環のある惑星 (その他): 寒色
         fogNear: 80, fogFar: 600, baseOpacity: .9, minOpacity: .36,
+        // 注目ノード (選択中の記事、または開いている惑星) からのホップ距離による段階。歩いた星が増えても「今いる星系」だけが浮かぶ。
+        // hopOpacity は添字 = ホップ数の不透明度の倍率 (末尾はそれ以遠すべて)。
+        // labelHops 以遠のノードは、訪れた記事星と強調中のものを除いてラベルを出さない (ホバーすれば出る)。
+        // collapseHops 以遠の訪れた恒星系は、惑星ごと 1 つの銀河に畳む (近づけば元に戻る)
+        hopOpacity: [1, 1, .7, .45],
+        labelHops: 2,
+        collapseHops: 3,
+        // 星の動き (恒星の対流と自転、惑星の自転、銀河の自転) は、カメラから motionRange 以内にあるものだけ進める。
+        // 遠景では分からないので止めておき、近くに動くものが無ければループも止める (カメラが動けば再開)
+        motionRange: 700,
+        // 恒星: ノイズの表面 (対流のセルと粒状斑) と、縁が揺らいでプロミネンスが盛り上がるコロナ
+        star: {
+          spin: .03,           // 自転 (rad/s、1 周 3.5 分)。コロナの縁の模様も同じ向きに回る
+          octaves: 4,          // 表面ノイズのオクターブ数 (負荷の調整点)
+          coronaScale: 6.5,    // コロナの板の幅 (半径比)
+          coronaStrength: { selected: 1, focused: .9, hovered: .7, normal: .5 },
+        },
+        // 惑星: 手続きテクスチャ。収容する記事数で種類が変わる (多い → 木星風の帯、少ない → 火星風の岩、まれに地球風)。
+        // その他は土星風 (淡い帯 + 平らな環)。種類と模様はノード ID のハッシュで決定論的に選ぶ
+        planet: {
+          spin: [.04, .08],    // 自転の角速度の範囲 (rad/s、1 周 1.3〜2.6 分)
+          jupiterMin: 20,      // これ以上の収容記事で木星風、未満は火星風
+          earthMin: 5,         // 地球風になりうる最小の収容記事数 (火星風より賑やかな世界だけ)
+          earthChance: 40,     // 地球風の出現率 (1/N)。数十星系歩いて数回出会うくらい
+          emissive: .25,       // 影の側でも模様が見えるよう、テクスチャ自体を弱く発光させる
+        },
+        // 銀河 (畳まれた恒星系): 渦巻きの腕に沿って散らした点群。注目する星系より沈むよう点は少なく色は霞ませる
+        galaxy: {
+          radiusBase: 18, radiusPerPlanet: 1.6, radiusMax: 40,  // 半径は畳んだ惑星の数で決める
+          count: 700, pointSize: 3, opacity: .6,
+          spin: .1,        // 自転の角速度 (rad/s)。1 周に 1 分ほどの、目を凝らして気づく程度
+          minOpacity: { points: .3, glow: .18, label: .5 },  // 霧とホップの減光で沈み切らない下限 (遠くでも銀河と分かる)
+          core: '#b8b6c4',                             // 中心 (バルジ) の色。白く抜けないよう青みの灰
+          arms: ['#7d90b8', '#6c9ea3', '#9a88bd'],     // 腕の色 (記事ごとに決定論的に選ぶ): 青灰・青緑・薄紫
+        },
         // 恒星系の配置。惑星は恒星を囲む球殻に等間隔で散らばり (デブリの軌道のように立体的)、恒星同士は惑星軌道より長い辺で離す
         orbitRadius: 44,        // 惑星の軌道半径 (惑星が orbitBaseCount を超えると面積に応じて広がる)
         orbitBaseCount: 8,      // この個数までは orbitRadius に収める
@@ -1182,6 +1219,260 @@
     }
 
     // =====================================================================
+    // 表示: 星の質感 (シェーダーのノイズと手続きテクスチャ)
+    // =====================================================================
+
+    // GLSL の 3D 勾配ノイズと fbm。恒星の表面とコロナで共有する
+    const GLSL_NOISE = `
+      vec3 hash3(vec3 p){ p = vec3(dot(p,vec3(127.1,311.7,74.7)), dot(p,vec3(269.5,183.3,246.1)), dot(p,vec3(113.5,271.9,124.6))); return -1.0 + 2.0*fract(sin(p)*43758.5453123); }
+      float noise(vec3 p){
+        vec3 i = floor(p), f = fract(p); vec3 u = f*f*(3.0-2.0*f);
+        return mix(mix(mix(dot(hash3(i+vec3(0,0,0)),f-vec3(0,0,0)), dot(hash3(i+vec3(1,0,0)),f-vec3(1,0,0)),u.x),
+                       mix(dot(hash3(i+vec3(0,1,0)),f-vec3(0,1,0)), dot(hash3(i+vec3(1,1,0)),f-vec3(1,1,0)),u.x),u.y),
+                   mix(mix(dot(hash3(i+vec3(0,0,1)),f-vec3(0,0,1)), dot(hash3(i+vec3(1,0,1)),f-vec3(1,0,1)),u.x),
+                       mix(dot(hash3(i+vec3(0,1,1)),f-vec3(0,1,1)), dot(hash3(i+vec3(1,1,1)),f-vec3(1,1,1)),u.x),u.y),u.z);
+      }
+      float fbm(vec3 p, int octaves){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { if (i >= octaves) break; v += a * noise(p); p = p * 2.03 + 17.1; a *= 0.5; } return v; }
+    `;
+
+    // 恒星の表面: 大きな対流のセルと、ridged にした細かい粒状斑。周辺減光で縁は暗く赤い。uBright で強調の段階を掛ける
+    const STAR_VERTEX = `varying vec3 vPos; varying vec3 vNormal; varying vec3 vView;
+      void main(){ vPos = position; vNormal = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position,1.0); vView = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`;
+    const STAR_FRAGMENT = GLSL_NOISE + `
+      uniform float uTime, uBright, uOpacity; uniform int uOctaves; uniform vec3 uBase, uHot, uDark;
+      varying vec3 vPos; varying vec3 vNormal; varying vec3 vView;
+      void main(){
+        vec3 p = normalize(vPos);
+        float cells = fbm(p * 2.6 + vec3(0.0, uTime * 0.05, uTime * 0.03), uOctaves);
+        float grain = fbm(p * 8.0 - vec3(uTime * 0.09, 0.0, uTime * 0.05), uOctaves);
+        float ridged = 1.0 - abs(grain) * 3.0;
+        float t = clamp(0.45 + cells * 0.55 + ridged * 0.45, 0.0, 1.0);
+        vec3 color = mix(uDark, uBase, smoothstep(0.05, 0.6, t));
+        color = mix(color, uHot, smoothstep(0.6, 0.98, t));
+        float limb = pow(max(dot(vNormal, vView), 0.0), 0.55);
+        color = mix(uDark * 0.9, color, 0.35 + 0.65 * limb);
+        gl_FragColor = vec4(color * uBright, uOpacity);
+      }`;
+
+    // コロナ: 常にカメラを向く板。球の縁に張り付いた揺らぐ帯 + 低周波の山だけ拾った盛り上がり (プロミネンス) + 広い裾の光。
+    // 板の幅 = 半径 × coronaScale なので、r (中心 0 〜 板の縁 1) では球の縁が 2 / coronaScale に来る
+    const CORONA_VERTEX = `varying vec2 vUv;
+      void main(){ vUv = uv - 0.5; vec4 mv = modelViewMatrix * vec4(0.0,0.0,0.0,1.0); vec2 scale = vec2(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz)); mv.xy += position.xy * scale; gl_Position = projectionMatrix * mv; }`;
+    const CORONA_FRAGMENT = GLSL_NOISE + `
+      uniform float uTime, uStrength, uSeed, uOpacity; uniform vec3 uColor; varying vec2 vUv;
+      void main(){
+        float r = length(vUv) * 2.0;
+        float a = atan(vUv.y, vUv.x) - uTime * 0.03;
+        vec3 q = vec3(cos(a), sin(a), 0.0) * 2.4 + vec3(uSeed, 0.0, uTime * 0.07);
+        float wobble = fbm(q, 3);
+        float bump = pow(max(fbm(q * 0.5 + vec3(0.0, 0.0, uTime * 0.05), 2), 0.0), 2.2) * 3.0;
+        float edge = 0.34 + wobble * 0.05 + bump * 0.3;
+        float glow = pow(max(1.0 - r / 0.6, 0.0), 1.8) * 0.7 + pow(max(1.0 - r, 0.0), 3.0) * 0.2;
+        float rim = smoothstep(edge + 0.06, edge - 0.05, r) * smoothstep(0.2, 0.3, r) * 0.75;
+        float streak = pow(max(noise(vec3(a * 5.0, r * 2.5, uTime * 0.08 + uSeed)), 0.0), 2.0) * smoothstep(0.95, 0.4, r) * 0.16;
+        float alpha = clamp(glow + rim + streak, 0.0, 1.0) * uStrength * uOpacity;
+        gl_FragColor = vec4(uColor * alpha, alpha);
+      }`;
+
+    // 惑星のテクスチャ。正距円筒図を Canvas に手続きで描き、種類ごとに数枚作って全惑星で共有する。
+    // 生成は合計で 1 秒近く CPU を使うので、起動後の空き時間に 1 枚ずつ作る (間に合わなければその場で作る)
+    class PlanetTextures {
+      constructor() {
+        this.ready = new Map();  // key → THREE.Texture
+        this.recipes = [
+          // 木星風: 帯は赤道で広く極で細く、高緯度で崩れて斑になる。色差はごく薄く、本数は多く
+          ['jupiter0', () => PlanetTextures.bands({ seed: 1, colors: ['#bdd0f6', '#a6bceb', '#b8ccf4', '#a0b7e8', '#c1d3f7', '#aabfec'], bands: 28 })],
+          ['jupiter1', () => PlanetTextures.bands({ seed: 2, colors: ['#bbcef5', '#a3bae9', '#c2d4f7', '#a0b7e8'], bands: 24, turbulence: .12 })],
+          ['jupiter2', () => PlanetTextures.bands({ seed: 3, colors: ['#b7cbf4', '#a3bae9', '#c1d3f7', '#aabfec', '#9eb5e6', '#bccef5'], bands: 34, turbulence: .06 })],
+          // 火星風: 青灰の砂と岩 (暖色は恒星の印なので赤にはしない)、クレーター、極冠
+          ['mars0', () => PlanetTextures.rocky({ seed: 4, base: '#8d9cc0', dark: '#5f6d92', light: '#b9c4de' })],
+          ['mars1', () => PlanetTextures.rocky({ seed: 5, base: '#98a3c4', dark: '#66739a', light: '#c4cde2', craters: 26 })],
+          // 地球風: まれにしか出ないので 1 枚だけ精細に
+          ['earth0', () => PlanetTextures.earth({ seed: 6 })],
+          // 土星風の本体と環
+          ['saturn0', () => PlanetTextures.bands({ seed: 7, colors: ['#b6e8eb', '#9ddadf', '#b0e5e8', '#98d6db'], bands: 36, turbulence: .04 })],
+          ['saturn1', () => PlanetTextures.bands({ seed: 8, colors: ['#bae9ec', '#a1dce1', '#b3e6e9', '#9ad7dc', '#ade2e6'], bands: 30, turbulence: .05 })],
+          ['ring0', () => PlanetTextures.ring({ seed: 1 })],
+          ['ring1', () => PlanetTextures.ring({ seed: 2, inner: .5 })],
+        ];
+        this.counts = { jupiter: 3, mars: 2, earth: 1, saturn: 2, ring: 2 };
+        this.pending = [...this.recipes];
+        this.scheduleNext();
+      }
+
+      scheduleNext() {
+        if (this.pending.length === 0) return;
+        const idle = window.requestIdleCallback ?? ((fn) => setTimeout(() => fn({ timeRemaining: () => 50 }), 50));
+        idle(() => { this.buildNext(); this.scheduleNext(); });
+      }
+
+      buildNext() {
+        const next = this.pending.shift();
+        if (next && !this.ready.has(next[0])) this.ready.set(next[0], next[1]());
+      }
+
+      get(kind, index) {
+        const key = `${kind}${index % this.counts[kind]}`;
+        if (!this.ready.has(key)) {
+          const recipe = this.recipes.find(([name]) => name === key);
+          this.ready.set(key, recipe[1]());
+          this.pending = this.pending.filter((entry) => entry !== recipe);
+        }
+        return this.ready.get(key);
+      }
+
+      static valueNoise3D(seed) {
+        const rnd = (x, y, z) => { const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + seed * 53.3) * 43758.5453; return s - Math.floor(s); };
+        const smooth = (t) => t * t * (3 - 2 * t);
+        const lerp = (a, b, t) => a + (b - a) * t;
+        return (x, y, z) => {
+          const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+          const u = smooth(x - xi), v = smooth(y - yi), w = smooth(z - zi);
+          const c00 = lerp(rnd(xi, yi, zi), rnd(xi + 1, yi, zi), u), c10 = lerp(rnd(xi, yi + 1, zi), rnd(xi + 1, yi + 1, zi), u);
+          const c01 = lerp(rnd(xi, yi, zi + 1), rnd(xi + 1, yi, zi + 1), u), c11 = lerp(rnd(xi, yi + 1, zi + 1), rnd(xi + 1, yi + 1, zi + 1), u);
+          return lerp(lerp(c00, c10, v), lerp(c01, c11, v), w);
+        };
+      }
+
+      // 継ぎ目も極の収束も出ないよう、正距円筒図の (u, v) を球面上の点に戻してから 3D ノイズを引く。
+      // stretch > 1 で緯度方向の周波数を上げ、模様を経度方向に引き伸ばす (帯に沿って流れる乱流)。戻り値はおよそ -0.5〜0.5
+      static sphereNoise(seed) {
+        const n = PlanetTextures.valueNoise3D(seed);
+        return (u, v, scale, octaves = 4, stretch = 1) => {
+          let value = 0, amp = .5, f = scale;
+          const a = u * Math.PI * 2, t = v * Math.PI;
+          const x = Math.cos(a) * Math.sin(t), y = Math.cos(t), z = Math.sin(a) * Math.sin(t);
+          for (let i = 0; i < octaves; i++) {
+            value += amp * (n(x * f + 7.3 * i, y * f * stretch + 2.1 * i, z * f + 5.7 * i) - .5);
+            amp *= .5; f *= 2.1;
+          }
+          return value;
+        };
+      }
+
+      // w×h の正距円筒図を shade(u, v, out) で塗る
+      static paint(w, h, shade) {
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const context = canvas.getContext('2d');
+        const image = context.createImageData(w, h);
+        const out = new THREE.Color();
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          shade((x + .5) / w, (y + .5) / h, out);
+          const k = (y * w + x) * 4;
+          image.data[k] = out.r * 255; image.data[k + 1] = out.g * 255; image.data[k + 2] = out.b * 255; image.data[k + 3] = 255;
+        }
+        context.putImageData(image, 0, 0);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
+
+      static clamp01(v) { return Math.min(1, Math.max(0, v)); }
+
+      static bands({ seed, colors, bands = 9, turbulence = .12 }) {
+        const { clamp01 } = PlanetTextures;
+        const fbm = PlanetTextures.sphereNoise(seed);
+        const cols = colors.map((hex) => new THREE.Color(hex));
+        const mean = cols.reduce((acc, c) => acc.add(c), new THREE.Color(0, 0, 0)).multiplyScalar(1 / cols.length);
+        return PlanetTextures.paint(512, 256, (u, v, out) => {
+          // 帯の揺らぎは幅の半分以下に留め、経度方向に引き伸ばした乱流で縁をほつれさせる
+          const wob = fbm(u, v, 1.5, 2) * turbulence * .6 + fbm(u, v, 5, 3, 3) * turbulence * .4;
+          // 緯度 (-1 南極 〜 0 赤道 〜 1 北極)。赤道の帯は広く、高緯度ほど細く (帯番号の変化率: 赤道 0.4、極 2.2)
+          const lat = (v + wob - .5) * 2;
+          const band = lat * (.4 + .6 * lat * lat) * bands / 2;
+          const i = Math.floor(band), f = band - i;
+          const c0 = cols[((i % cols.length) + cols.length) % cols.length], c1 = cols[(((i + 1) % cols.length) + cols.length) % cols.length];
+          out.copy(c0).lerp(c1, f * f * (3 - 2 * f));
+          // 高緯度では帯のコントラストが落ち、極域は帯が崩れて斑点状の渦になる
+          const polar = clamp01((Math.abs(lat) - .55) / .4);
+          out.lerp(mean, polar * .8);
+          const swirl = fbm(u, v, 12, 3) * .16 * polar;
+          const grain = fbm(u, v, 20, 2, 4) * .1 * (1 - polar * .5);
+          out.r = clamp01(out.r + swirl + grain); out.g = clamp01(out.g + swirl + grain); out.b = clamp01(out.b + swirl + grain);
+        });
+      }
+
+      // 砂の地面にまだら模様、いくつかのクレーター (縁が明るく底が暗い)、極冠
+      static rocky({ seed, base, dark, light, cap = '#e8eef4', craters = 14 }) {
+        const { clamp01 } = PlanetTextures;
+        const fbm = PlanetTextures.sphereNoise(seed);
+        const cBase = new THREE.Color(base), cDark = new THREE.Color(dark), cLight = new THREE.Color(light), cCap = new THREE.Color(cap);
+        const n = PlanetTextures.valueNoise3D(seed + 9);
+        const holes = [];
+        for (let i = 0; i < craters; i++) holes.push({ u: n(i, 1, 2), v: .12 + n(i, 3, 4) * .76, r: .01 + n(i, 5, 6) ** 2 * .035 });
+        return PlanetTextures.paint(256, 128, (u, v, out) => {
+          const dust = fbm(u, v, 3, 4);
+          const rock = fbm(u, v, 14, 3);
+          out.copy(cBase).lerp(cDark, clamp01(.5 - dust * 1.6)).lerp(cLight, clamp01(rock * 1.4));
+          for (const hole of holes) {
+            let du = Math.abs(u - hole.u); du = Math.min(du, 1 - du);
+            const d = Math.hypot(du, (v - hole.v) * .5) / hole.r;  // 正距円筒なので縦を半分に
+            if (d < 1.2) {
+              const rim = Math.exp(-((d - 1) ** 2) * 90) * .4;
+              const floor = d < .92 ? .28 * (1 - d * .5) : 0;
+              out.lerp(cLight, rim).lerp(cDark, floor);
+            }
+          }
+          const polar = Math.max(0, Math.abs(v - .5) * 2 - .8 + fbm(u, v, 8, 2) * .25) * 5;
+          out.lerp(cCap, clamp01(polar));
+        });
+      }
+
+      // 海と大陸 (ノイズの閾値)、緯度と乾燥度で植生 → 砂漠 → 雪、上に雲
+      static earth({ seed, ocean = '#2a5ea8', shallow = '#4d8fd0', land = '#6f9a4d', desert = '#c8b078', snow = '#f2f5f8', cloud = '#ffffff' }) {
+        const { clamp01 } = PlanetTextures;
+        const fbm = PlanetTextures.sphereNoise(seed);
+        const cloudNoise = PlanetTextures.sphereNoise(seed + 31);
+        const cOcean = new THREE.Color(ocean), cShallow = new THREE.Color(shallow), cLand = new THREE.Color(land);
+        const cDesert = new THREE.Color(desert), cSnow = new THREE.Color(snow), cCloud = new THREE.Color(cloud);
+        return PlanetTextures.paint(512, 256, (u, v, out) => {
+          const height = fbm(u, v, 2.2, 5) + fbm(u, v, 6, 3) * .3;
+          const lat = Math.abs(v - .5) * 2;
+          if (height < .04) {
+            out.copy(cOcean).lerp(cShallow, clamp01((height + .04) * 12));
+          } else {
+            const dryness = clamp01(.5 + fbm(u, v, 4, 3) * 1.5 - lat * .4);
+            out.copy(cLand).lerp(cDesert, dryness);
+            const alt = clamp01((height - .04) * 6);
+            out.lerp(cSnow, clamp01(alt * .6 + lat ** 4 * 1.2));
+          }
+          out.lerp(cSnow, clamp01((lat - .86) * 8));
+          const clouds = clamp01(cloudNoise(u, v, 4, 4) * 2.6 - .2) * clamp01(.6 + cloudNoise(u, v, 12, 2) * 2);
+          out.lerp(cCloud, clouds * .9);
+        });
+      }
+
+      // 土星風の環: 中心が透明で、放射方向に濃淡と隙間のある帯を描いた正方形の板
+      static ring({ seed, color = '#a8e6ea', inner = .55 }) {
+        const { clamp01 } = PlanetTextures;
+        const n = PlanetTextures.valueNoise3D(seed);
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const context = canvas.getContext('2d');
+        const image = context.createImageData(size, size);
+        const c = new THREE.Color(color);
+        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+          const d = Math.hypot(x + .5 - size / 2, y + .5 - size / 2) / (size / 2);
+          let alpha = 0;
+          if (d > inner && d < .98) {
+            const t = (d - inner) / (.98 - inner);
+            const bands = n(t * 18, 1, seed) * .6 + n(t * 60, 2, seed) * .4;
+            const gap = Math.exp(-((t - .62) ** 2) * 400) * .9;  // カッシーニの間隙風
+            alpha = clamp01(.25 + bands * .8) * (1 - gap) * Math.sin(t * Math.PI) ** .35;
+          }
+          const k = (y * size + x) * 4;
+          image.data[k] = c.r * 255; image.data[k + 1] = c.g * 255; image.data[k + 2] = c.b * 255; image.data[k + 3] = alpha * 255;
+        }
+        context.putImageData(image, 0, 0);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
+    }
+
+    // =====================================================================
     // 表示: 3D グラフ (Wikipedia 宇宙)
     // =====================================================================
 
@@ -1201,6 +1492,9 @@
         this.focused = null;
         this.hovered = null;
         this.relatedIds = new Set();
+        this.hops = new Map();        // 注目ノードからの各ノードのホップ距離 (減光・ラベル・畳みの段階に使う)
+        this.hopsDirty = true;        // ノードや辺、注目が変わったら取り直す
+        this.motionFrame = null;      // 星の動き (恒星の対流・自転、惑星と銀河の自転) のループ。近くに動くものがある間だけ回す
         this.animatingLabels = new Set();
         this.hoverFrame = null;
         this.queue = [];       // 出現待ちのノード
@@ -1214,6 +1508,8 @@
         this.raycaster = new THREE.Raycaster();
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         this.glowTexture = this.createGlowTexture();
+        this.dotTexture = this.createDotTexture();
+        this.planetTextures = new PlanetTextures();
 
         // TrackballControls: 左ドラッグで極点をまたいで回転、右ドラッグまたはShift＋左ドラッグで平行移動、ホイールでズーム
         this.graph = ForceGraph3D({ controlType: 'trackball', rendererConfig: { antialias: true } })(container)
@@ -1235,7 +1531,7 @@
         // TrackballControls 標準の D＋ドラッグを、既存ガイドどおり Shift＋左ドラッグの平行移動へ置き換える。
         const controls = this.graph.controls();
         controls.keys[2] = 'ShiftLeft';
-        controls.addEventListener('change', () => this.updateLabelScales());
+        controls.addEventListener('change', () => { this.updateLabelScales(); this.startMotion(); });
 
         // 恒星系の配置: 恒星–惑星の辺は軌道半径、恒星–恒星の辺は長く。惑星の間隔は軌道スロットが作る
         this.graph.d3Force('charge').strength((node) => (node.kind === 'article' ? this.cfg.starCharge : this.cfg.planetCharge));
@@ -1412,8 +1708,7 @@
       // 恒星 ID から決定論的に球殻の向き (直交基底) を決める (同じ記事は何度置いても同じ向き)
       orbitBasis(star) {
         if (star.__orbit) return star.__orbit;
-        let h = 2166136261;
-        for (const ch of star.id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+        const h = GraphView.hashOf(star.id);
         const theta = ((h & 0xffff) / 0xffff) * Math.PI * 2;
         const phi = Math.acos(1 - 2 * (((h >>> 16) & 0xffff) / 0xffff));
         const w = new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta)).normalize();
@@ -1422,6 +1717,13 @@
         const v = new THREE.Vector3().crossVectors(w, u).normalize();
         star.__orbit = { u, v, w };
         return star.__orbit;
+      }
+
+      // ID の FNV-1a ハッシュ。恒星系の向きや銀河の形を記事ごとに決定論的に決める
+      static hashOf(id) {
+        let h = 2166136261;
+        for (const ch of id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+        return h;
       }
 
       nodeColor(node) {
@@ -1474,10 +1776,61 @@
         const state = this.visualState(node);
         if (state === 'selected' || state === 'focused' || state === 'hovered' || state === 'parent') return 1;
         const fog = this.fogOpacity(node);
-        return state === 'related' ? THREE.MathUtils.lerp(fog, 1, this.cfg.relatedBrightness) : fog;
+        const base = state === 'related' ? THREE.MathUtils.lerp(fog, 1, this.cfg.relatedBrightness) : fog;
+        return base * this.hopFactor(node);
+      }
+
+      // ---- 注目ノードからのホップ距離 ----------------------------------
+
+      // 段階の起点: 開いている惑星があればそれ、なければ選択中の記事 (自動フレーミングの中心と同じ)
+      hopRoot() { return this.focused ?? this.selected; }
+
+      hopOf(node) {
+        if (this.hopsDirty) this.rebuildHops();
+        return this.hops.get(node.id) ?? Infinity;
+      }
+
+      // 辺を向きなしに辿る幅優先探索。ノード数は高々数百なので、変化のたびに取り直しても軽い
+      rebuildHops() {
+        this.hops.clear();
+        this.hopsDirty = false;
+        const root = this.hopRoot();
+        if (!root) return;
+        const adjacent = new Map();
+        for (const link of this.links) {
+          const a = linkEnd(link.source), b = linkEnd(link.target);
+          if (!adjacent.has(a)) adjacent.set(a, []);
+          if (!adjacent.has(b)) adjacent.set(b, []);
+          adjacent.get(a).push(b);
+          adjacent.get(b).push(a);
+        }
+        const queue = [root.id];
+        this.hops.set(root.id, 0);
+        for (let i = 0; i < queue.length; i++) {
+          const id = queue[i];
+          const next = this.hops.get(id) + 1;
+          for (const other of adjacent.get(id) ?? []) {
+            if (this.hops.has(other)) continue;
+            this.hops.set(other, next);
+            queue.push(other);
+          }
+        }
+      }
+
+      hopFactor(node) {
+        const table = this.cfg.hopOpacity;
+        return table[Math.min(this.hopOf(node), table.length - 1)];
+      }
+
+      // ラベルを常時出すか: 強調中・訪れた記事星 (銀河を含む)・注目から labelHops 以内。それ以外はホバーで出る
+      labelVisible(node) {
+        if (this.visualState(node) !== 'normal') return true;
+        if (node.visited) return true;
+        return this.hopOf(node) <= this.cfg.labelHops;
       }
 
       createNodeObject(node) {
+        if (node.__system) return this.createGalaxyObject(node);
         const selected = node === this.selected;
         const focused = node === this.focused;
         const state = this.visualState(node);
@@ -1495,32 +1848,18 @@
         );
         group.add(hitTarget);
 
-        const body = new THREE.Mesh(
-          new THREE.SphereGeometry(radius, 20, 12),
-          new THREE.MeshLambertMaterial({ color, transparent: true, opacity, emissive: color, emissiveIntensity: this.emissiveIntensity(state) }),
-        );
-        group.add(body);
-        materials.push(body.material);
-
-        if (node.kind === 'pool') {
-          // その他の関連記事は環のある惑星にして、カテゴリの惑星と見分けられるようにする
-          const ringColor = focused ? '#ffffff' : color;
-          const ring = new THREE.Mesh(new THREE.TorusGeometry(radius + 2.4, focused ? .6 : .4, 8, 40), new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity }));
-          ring.rotation.x = Math.PI / 2.6;
-          group.add(ring);
-          materials.push(ring.material);
-        }
-        if (selected || focused) {
+        const body = star ? this.createStarBody(node, radius, color, state, group, materials) : this.createPlanetBody(node, radius, state, group, materials);
+        if (focused) {
           const glow = new THREE.Sprite(new THREE.SpriteMaterial({
             map: this.glowTexture,
             color: '#ffffff',
             transparent: true,
-            opacity: focused ? .72 : .58,
+            opacity: .72,
             blending: THREE.AdditiveBlending,
             depthTest: false,
             depthWrite: false,
           }));
-          const glowSize = radius * (focused ? 5.2 : 4.8);
+          const glowSize = radius * 5.2;
           glow.scale.set(glowSize, glowSize, 1);
           glow.renderOrder = -1;  // リングとラベルより先に重ねる
           glow.raycast = () => {};  // 光の広がりでクリック領域を拡大しない
@@ -1538,14 +1877,237 @@
         group.add(label);
         materials.push(label.material);
 
+        this.bindLabel(node, label, materials, body.material);
+        this.applyOpacity(node, opacity);
+        this.startMotion();
+        if (node.__arrival) this.runArrival(node, group);
+        return group;
+      }
+
+      // 恒星の本体: ノイズの表面 + コロナ。色は palette の色を基準に、明部は白へ、暗部は暖色へ寄せる
+      createStarBody(node, radius, color, state, group, materials) {
+        const cfg = this.cfg.star;
+        const base = new THREE.Color(color);
+        const hot = base.clone().lerp(new THREE.Color('#ffffff'), .6);
+        const dark = base.clone().lerp(new THREE.Color('#e8a060'), .5);  // 暗部は橙へ半分寄せる (白熱の選択星でも粒状斑が読める程度)
+        const body = new THREE.Mesh(
+          new THREE.SphereGeometry(radius, radius > 6 ? 40 : 28, radius > 6 ? 24 : 16),
+          new THREE.ShaderMaterial({
+            uniforms: {
+              uTime: { value: performance.now() / 1000 }, uOctaves: { value: cfg.octaves },
+              uBright: { value: this.starBrightness(state, node) }, uOpacity: { value: 1 },
+              uBase: { value: base }, uHot: { value: hot }, uDark: { value: dark },
+            },
+            vertexShader: STAR_VERTEX, fragmentShader: STAR_FRAGMENT, transparent: true,
+          }),
+        );
+        body.rotation.y = node.__spinAngle ?? 0;
+        group.add(body);
+        materials.push(body.material);
+
+        const strength = cfg.coronaStrength[state] ?? cfg.coronaStrength.normal;
+        const corona = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: performance.now() / 1000 }, uStrength: { value: strength }, uOpacity: { value: 1 },
+            uSeed: { value: (GraphView.hashOf(node.id) % 1000) / 10 }, uColor: { value: base.clone().lerp(new THREE.Color('#ffc890'), .3) },
+          },
+          vertexShader: CORONA_VERTEX, fragmentShader: CORONA_FRAGMENT,
+          transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        }));
+        corona.scale.setScalar(radius * cfg.coronaScale);
+        corona.renderOrder = -1;
+        corona.raycast = () => {};  // 光の広がりでクリック領域を拡大しない
+        group.add(corona);
+        materials.push(corona.material);
+
+        node.__motion = { kind: 'star', body, materials: [body.material, corona.material], speed: cfg.spin };
+        return body;
+      }
+
+      // 強調の段階を恒星の明るさに写す (Lambert の発光強度の代わり)
+      starBrightness(state, node) {
+        return .88 + this.emissiveIntensity(state) * .5 * this.hopFactor(node);  // 通常 .92、選択 1.05 (白飛びさせない)
+      }
+
+      // 惑星の本体: 収容記事数と ID のハッシュで種類と模様を選ぶ。自転軸を少し傾け、その他には土星風の環を付ける
+      createPlanetBody(node, radius, state, group, materials) {
+        const cfg = this.cfg.planet;
+        const hash = GraphView.hashOf(node.id);
+        const members = node.members?.length ?? 0;
+        const kind = node.kind === 'pool' ? 'saturn'
+          : members >= cfg.earthMin && hash % cfg.earthChance === 0 ? 'earth'
+          : members >= cfg.jupiterMin ? 'jupiter' : 'mars';
+        const texture = this.planetTextures.get(kind, hash >>> 4);
+        const body = new THREE.Mesh(
+          new THREE.SphereGeometry(radius, 32, 20),
+          new THREE.MeshLambertMaterial({ map: texture, transparent: true, emissive: '#ffffff', emissiveMap: texture, emissiveIntensity: this.planetEmissive(state, node) }),
+        );
+        body.rotation.y = node.__spinAngle ?? 0;
+        const tilt = new THREE.Group();
+        tilt.rotation.z = (((hash >>> 8) % 100) / 100 - .5) * .6;
+        tilt.add(body);
+        group.add(tilt);
+        materials.push(body.material);
+        if (node.kind === 'pool') {
+          const ring = new THREE.Mesh(
+            new THREE.PlaneGeometry(radius * 4.6, radius * 4.6),
+            new THREE.MeshBasicMaterial({ map: this.planetTextures.get('ring', hash >>> 12), transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+          );
+          ring.rotation.x = Math.PI / 2;
+          ring.raycast = () => {};  // 環でクリック領域を広げない
+          tilt.add(ring);
+          tilt.rotation.x = .35;
+          materials.push(ring.material);
+        }
+        node.__motion = { kind: 'planet', body, speed: cfg.spin[0] + ((hash >>> 16) % 100) / 100 * (cfg.spin[1] - cfg.spin[0]) };
+        node.__planetKind = kind;
+        return body;
+      }
+
+      // 惑星の発光: テクスチャ自体を弱く光らせて影の側でも模様が見えるようにし、強調の段階で少し上げる
+      planetEmissive(state, node) {
+        return (this.cfg.planet.emissive + this.emissiveIntensity(state) * .6) * this.hopFactor(node);
+      }
+
+      bindLabel(node, label, materials, bodyMaterial = null) {
+        label.visible = this.labelVisible(node);
         node.__sprite = label;
         node.__labelBaseScale = label.scale.clone();
         node.__labelScale = 1;
-        node.__bodyMaterial = body.material;
+        node.__bodyMaterial = bodyMaterial;
         node.__visualMaterials = materials;
         this.setLabelScale(node, this.targetLabelScale(node));
-        if (node.__arrival) this.runArrival(node, group);
+      }
+
+      // 銀河: 畳まれた恒星系。渦巻きの腕に沿って点を散らした点群と中心の淡い輝きで、記事の見出しを添える。
+      // 形 (腕の本数・傾き・色) は記事 ID から決定論的に決め、大きさは畳んだ惑星の数で決める
+      createGalaxyObject(node) {
+        const cfg = this.cfg.galaxy;
+        const h = GraphView.hashOf(node.id);
+        const random = GraphView.randomOf(h);
+        const gauss = () => (random() + random() + random() + random() - 2) * .85;
+        const planets = node.__system.nodes.filter((held) => held.kind !== 'article').length;
+        const radius = Math.min(cfg.radiusMax, cfg.radiusBase + cfg.radiusPerPlanet * planets);
+        const arms = 2 + (h % 2);                 // 2 本または 3 本腕
+        const twist = 2.2 + ((h >>> 4) % 100) / 100 * 1.2;
+        const spread = .16 + ((h >>> 12) % 100) / 100 * .1;
+        const core = new THREE.Color(cfg.core);
+        const arm = new THREE.Color(cfg.arms[(h >>> 20) % cfg.arms.length]);
+        const tint = new THREE.Color();
+        const count = cfg.count;
+        const positions = new Float32Array(count * 3);
+        const colors = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+          const t = Math.pow(random(), 1.25);   // 中心に密く、腕にも点を残す
+          const angle = t * twist * Math.PI + (i % arms) * (2 * Math.PI / arms);
+          const scatter = spread * radius * (.25 + t);
+          positions.set([
+            Math.cos(angle) * t * radius + gauss() * scatter,
+            gauss() * scatter * (.18 + (1 - t) * .5),   // 中心はバルジで厚く、腕は薄い円盤
+            Math.sin(angle) * t * radius + gauss() * scatter,
+          ], i * 3);
+          tint.copy(core).lerp(arm, Math.min(1, .25 + t * 1.1));  // 中心も腕の色を少し帯びて、白く抜けないように
+          tint.multiplyScalar(.55 + (1 - t) * .45 + random() * .25);  // 加算合成なので色の明るさが点の明るさ
+          colors.set([tint.r, tint.g, tint.b], i * 3);
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        const points = new THREE.Points(geometry, new THREE.PointsMaterial({
+          map: this.dotTexture, size: cfg.pointSize, vertexColors: true, transparent: true,
+          depthWrite: false, blending: THREE.AdditiveBlending,
+        }));
+        points.raycast = () => {};  // 点ごとの当たり判定は重いので、クリックは中心の球で受ける
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTexture, color: cfg.core, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+        glow.scale.setScalar(radius * .5);
+        glow.raycast = () => {};
+        // 傾き (外側) と自転 (内側) を分け、自転は円盤の面内で回るようにする
+        const spinner = new THREE.Group();
+        spinner.add(points, glow);
+        const disc = new THREE.Group();
+        disc.add(spinner);
+        disc.rotation.set(.35 + random() * .9, random() * Math.PI, (random() - .5) * .6);
+        spinner.rotation.y = node.__spinAngle ?? 0;  // 描画物が作り直されても位相を引き継ぎ、選択のたびに跳ねない
+        node.__motion = { kind: 'galaxy', body: spinner, speed: this.cfg.galaxy.spin * (h & 1 ? 1 : -1) };
+
+        const group = new THREE.Group();
+        group.add(new THREE.Mesh(new THREE.SphereGeometry(Math.max(radius * .45, this.cfg.hitRadius), 12, 8), new THREE.MeshBasicMaterial({ visible: false })));
+        group.add(disc);
+        const label = new SpriteText(node.name, 3.9, this.nodeColor(node));
+        label.fontFace = 'sans-serif';
+        label.backgroundColor = this.labelBackground(this.visualState(node));
+        label.padding = .8;
+        label.borderRadius = 3;
+        label.position.y = radius * .5 + 4;
+        group.add(label);
+        // 点群・輝き・ラベルは他のノードと同じ霧とホップの減光を受けるが、それぞれの下限より薄くはしない
+        points.material.userData.scale = cfg.opacity;
+        points.material.userData.minOpacity = cfg.minOpacity.points;
+        glow.material.userData.scale = cfg.opacity * .3;
+        glow.material.userData.minOpacity = cfg.minOpacity.glow;
+        label.material.userData.minOpacity = cfg.minOpacity.label;
+        this.bindLabel(node, label, [points.material, glow.material, label.material]);
+        this.applyOpacity(node, this.nodeOpacity(node));
+        this.startMotion();
         return group;
+      }
+
+      // ノードの不透明度を材質へ配る。材質ごとの倍率 (userData.scale) と下限 (userData.minOpacity) を尊重する
+      applyOpacity(node, opacity) {
+        for (const material of node.__visualMaterials ?? []) {
+          const { scale = 1, minOpacity = 0 } = material.userData;
+          const value = Math.max(minOpacity, opacity * scale);
+          if (material.uniforms?.uOpacity) material.uniforms.uOpacity.value = value;  // シェーダー (恒星・コロナ)
+          else material.opacity = value;
+        }
+      }
+
+      // 星の動き: 恒星の対流とコロナ (時刻の uniform) と自転、惑星と銀河の自転。
+      // シミュレーションが止まると tick が来ないので自前のループで回す。動かすのはカメラの近く (motionRange 以内) のものだけで、
+      // 近くに無くなればループも止める (カメラが動いたり星が増えたりすれば呼び直される)。
+      // 自転の角度はノードに持ち (描画物が作り直されても位相を引き継ぐ)、時刻は絶対時刻なので作り直しで跳ねない
+      startMotion() {
+        if (this.motionFrame || this.reducedMotion.matches) return;
+        let last = performance.now();
+        const tick = (now) => {
+          const dt = Math.min(.1, (now - last) / 1000);
+          last = now;
+          const camera = this.graph.camera().position;
+          const range = this.cfg.motionRange ** 2;
+          const time = now / 1000;
+          let any = false;
+          for (const node of this.nodes) {
+            const motion = node.__motion;
+            if (!motion || !node.__threeObj || motion.body.parent === null) continue;
+            if (camera.distanceToSquared(node.__threeObj.position) > range) continue;
+            node.__spinAngle = (node.__spinAngle ?? 0) + motion.speed * dt;
+            motion.body.rotation.y = node.__spinAngle;
+            for (const material of motion.materials ?? []) material.uniforms.uTime.value = time;
+            any = true;
+          }
+          this.motionFrame = any ? requestAnimationFrame(tick) : null;
+        };
+        this.motionFrame = requestAnimationFrame(tick);
+      }
+
+      // ハッシュを種にした線形合同法の乱数。同じ記事は何度置いても同じ形の銀河になる
+      static randomOf(seed) {
+        let state = seed >>> 0;
+        return () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+      }
+
+      // 銀河の点に使う柔らかい円
+      createDotTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 32;
+        const context = canvas.getContext('2d');
+        const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
+        gradient.addColorStop(0, 'rgba(255,255,255,1)');
+        gradient.addColorStop(.35, 'rgba(255,255,255,.55)');
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 32, 32);
+        return new THREE.CanvasTexture(canvas);
       }
 
       // 初期画面から最初の記事を置くとき: ワープの間は星を隠しておき (hold)、本文が届いたら暗闇から拡大しながら素早く現れる (arrive)
@@ -1605,18 +2167,18 @@
 
       updateFog() {
         for (const node of this.nodes) {
-          if (!node.__visualMaterials) continue;
-          const opacity = this.nodeOpacity(node);
-          for (const material of node.__visualMaterials) material.opacity = opacity;
+          if (node.__visualMaterials) this.applyOpacity(node, this.nodeOpacity(node));
         }
       }
 
       updateNodeVisual(node) {
         if (!node?.__sprite) return;
         const state = this.visualState(node);
-        const opacity = this.nodeOpacity(node);
-        for (const material of node.__visualMaterials ?? []) material.opacity = opacity;
-        if (node.__bodyMaterial) node.__bodyMaterial.emissiveIntensity = this.emissiveIntensity(state);
+        this.applyOpacity(node, this.nodeOpacity(node));
+        if (node.__bodyMaterial?.uniforms?.uBright) node.__bodyMaterial.uniforms.uBright.value = this.starBrightness(state, node);
+        else if (node.__bodyMaterial?.emissiveMap) node.__bodyMaterial.emissiveIntensity = this.planetEmissive(state, node);
+        else if (node.__bodyMaterial) node.__bodyMaterial.emissiveIntensity = this.emissiveIntensity(state) * this.hopFactor(node);
+        node.__sprite.visible = this.labelVisible(node);
         const scale = node.__labelScale ?? 1;
         node.__sprite.backgroundColor = this.labelBackground(state);
         node.__labelBaseScale = node.__sprite.scale.clone();
@@ -1670,7 +2232,9 @@
       // カメラやノードが動いたら全ラベルの距離補正を取り直す (アニメーション中のラベルはそのまま)
       updateLabelScales() {
         for (const node of this.nodes) {
-          if (node.__sprite && !node.__labelAnimation) this.setLabelScale(node, this.targetLabelScale(node));
+          if (!node.__sprite) continue;
+          node.__sprite.visible = this.labelVisible(node);
+          if (!node.__labelAnimation) this.setLabelScale(node, this.targetLabelScale(node));
         }
       }
 
@@ -1711,6 +2275,7 @@
       }
 
       rebuildRelatedIds() {
+        this.hopsDirty = true;
         this.relatedIds.clear();
         if (!this.selected) return;
         for (const link of this.links) {
@@ -1756,9 +2321,99 @@
       has(id) { return this.byId.has(id); }
       get(id) { return this.byId.get(id); }
 
+      // id のノードを返す。銀河に畳まれた恒星系の中にあれば、その恒星系を開いて取り出す
+      recall(id) {
+        const known = this.byId.get(id);
+        if (known) return known;
+        const holder = this.nodes.find((node) => node.__system?.ids.has(id));
+        if (!holder) return undefined;
+        this.expandSystem(holder);
+        this.graph.graphData({ nodes: this.nodes, links: this.links });
+        this.refreshStyles();
+        return this.byId.get(id);
+      }
+
+      // ---- 恒星系の畳み (銀河) ------------------------------------------
+
+      // 注目から collapseHops 以遠の訪れた恒星系は銀河に畳み、近づいた銀河は恒星系に戻す。
+      // 恒星 ↔ 銀河の切り替えは描画物の作り直しなので、呼び出し側が続けて restyle するなら restyle: false で省く
+      syncSystems({ restyle = true } = {}) {
+        let changed = false;
+        for (const node of [...this.nodes]) {
+          if (!node.visited) continue;
+          const far = this.hopOf(node) >= this.cfg.collapseHops;
+          if (far && !node.__system) changed = this.collapseSystem(node) || changed;
+          else if (!far && node.__system) { this.expandSystem(node); changed = true; }
+        }
+        if (!changed) return false;
+        this.graph.graphData({ nodes: this.nodes, links: this.links });
+        if (restyle) this.refreshStyles();
+        return true;
+      }
+
+      // 恒星系を畳む: 恒星の惑星と、恒星や惑星から生えた未訪問の末端の記事星 (この恒星系にしか繋がっていないもの) を
+      // グラフから外して恒星に預け、恒星を銀河として描き直す。訪れた記事星は自分の恒星系として残る。
+      // 訪問の印は expanded ではなく visited (収集が中断された記事も、置いた惑星ごと畳む対象にする)
+      collapseSystem(star) {
+        const held = new Set();
+        const degree = new Map();
+        for (const link of this.links) {
+          degree.set(linkEnd(link.source), (degree.get(linkEnd(link.source)) ?? 0) + 1);
+          degree.set(linkEnd(link.target), (degree.get(linkEnd(link.target)) ?? 0) + 1);
+        }
+        for (const node of this.nodes) {
+          if (node.parentId !== star.id) continue;
+          if (node.kind === 'article') { if (!node.visited && degree.get(node.id) === 1) held.add(node); }
+          else held.add(node);
+        }
+        for (const node of this.nodes) {  // 惑星から展開した未訪問の記事星
+          if (node.kind !== 'article' || node.visited || degree.get(node.id) !== 1) continue;
+          const parent = node.parentId && this.byId.get(node.parentId);
+          if (parent && held.has(parent)) held.add(node);
+        }
+        if (held.size === 0) return false;
+        const links = this.links.filter((link) => held.has(this.byId.get(linkEnd(link.source))) || held.has(this.byId.get(linkEnd(link.target))));
+        this.links = this.links.filter((link) => !links.includes(link));
+        this.nodes = this.nodes.filter((node) => !held.has(node));
+        for (const node of held) {
+          this.byId.delete(node.id);
+          if (this.hovered === node) this.hovered = null;
+          this.animatingLabels.delete(node);
+          delete node.__labelAnimation;
+        }
+        // 預けたノードの向こう側に残るノード (惑星から訪れた記事星など) は、銀河から直接の仮の辺で繋いでおき、
+        // グラフが千切れて漂わないようにする。恒星系を戻すときに外す
+        const bridges = [];
+        for (const link of links) {
+          const ends = [linkEnd(link.source), linkEnd(link.target)];
+          const outside = ends.find((id) => id !== star.id && this.byId.has(id));
+          if (!outside || bridges.some((bridge) => bridge.target === outside)) continue;
+          bridges.push({ source: star.id, target: outside, kind: link.kind, bridge: true });
+        }
+        this.links.push(...bridges);
+        star.__system = { nodes: [...held], links, bridges, ids: new Set([...held].map((node) => node.id)) };
+        this.rebuildRelatedIds();
+        return true;
+      }
+
+      // 銀河を恒星系に戻す: 預けていたノードと辺を銀河の位置から出す (軌道へは力が運ぶ)。描画物は次の restyle で作り直される
+      expandSystem(star) {
+        const system = star.__system;
+        if (!system) return;
+        delete star.__system;
+        this.links = this.links.filter((link) => !system.bridges.includes(link));
+        for (const node of system.nodes) {
+          Object.assign(node, { x: (star.x ?? 0) + (Math.random() - .5) * 8, y: (star.y ?? 0) + (Math.random() - .5) * 8, z: (star.z ?? 0) + (Math.random() - .5) * 8, vx: 0, vy: 0, vz: 0 });
+          this.byId.set(node.id, node);
+          this.nodes.push(node);
+        }
+        for (const link of system.links) this.links.push({ source: linkEnd(link.source), target: linkEnd(link.target), kind: link.kind });
+        this.rebuildRelatedIds();
+      }
+
       // ノードを親の位置から出現させる (親がなければ原点)。すでにあれば関係線だけ足す
       add(node, parent = null, kind = 'similar') {
-        const known = this.byId.get(node.id);
+        const known = this.recall(node.id);
         if (known) { if (parent) this.link(parent, known, kind); return known; }
         this.byId.set(node.id, node);
         this.queue.push({ node, parent, kind });
@@ -1777,6 +2432,7 @@
         if (!entry) {
           clearInterval(this.dripTimer);
           this.dripTimer = null;
+          this.syncSystems();    // 新しい辺で近づいた (遠ざかった) 星系があれば開く (畳む)
           this.scheduleFrame();  // 追加が一段落したので、少し待ってから画面に収める
           return;
         }
@@ -1786,6 +2442,7 @@
         if (parent) node.parentId = parent.id;  // 惑星は親の恒星の軌道に乗る
         this.nodes.push(node);
         if (parent) this.links.push({ source: parent.id, target: node.id, kind });
+        this.hopsDirty = true;
         if (parent?.id === this.selected?.id) this.relatedIds.add(node.id);
         else if (node.id === this.selected?.id && parent) this.relatedIds.add(parent.id);
         this.graph.graphData({ nodes: this.nodes, links: this.links });
@@ -1795,6 +2452,7 @@
         const exists = this.links.some((l) => (linkEnd(l.source) === a.id && linkEnd(l.target) === b.id) || (linkEnd(l.source) === b.id && linkEnd(l.target) === a.id));
         if (exists) return;
         this.links.push({ source: a.id, target: b.id, kind });
+        this.hopsDirty = true;
         if (a.id === this.selected?.id) { this.relatedIds.add(b.id); this.updateNodeVisual(b); }
         else if (b.id === this.selected?.id) { this.relatedIds.add(a.id); this.updateNodeVisual(a); }
         this.graph.graphData({ nodes: this.nodes, links: this.links });
@@ -1825,6 +2483,7 @@
         }
         this.rebuildRelatedIds();
         if (node) Object.assign(node, { fx: node.x, fy: node.y, fz: node.z });
+        this.syncSystems({ restyle: false });
         this.refreshStyles();
       }
 
@@ -1838,6 +2497,8 @@
           delete node.__labelAnimation;
           Object.assign(node, { fx: node.x, fy: node.y, fz: node.z });
         }
+        this.hopsDirty = true;
+        this.syncSystems({ restyle: false });
         this.refreshStyles();
       }
 
@@ -2848,7 +3509,7 @@
         this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅
         window.addEventListener('resize', () => this.syncViewShift());
         this.touch = window.matchMedia('(hover: none)');         // ホバーのない端末: タップ = 帯 (覗きカードの代わり)、「読む」= シート
-        this.history = new HistoryNav({ onMove: (id) => this.revisit(this.graph.get(id)) });
+        this.history = new HistoryNav({ onMove: (id) => this.revisit(this.graph.recall(id)) });  // 銀河に畳まれた星なら開いて取り出す
         this.starfield = new Starfield($('#starfield'), CONFIG.starfield);
         $('.brand').addEventListener('click', () => this.graph.toggleOverview());  // 隠し機能: 全景と元の視点のトグル
         this.current = null;         // 選択中の記事ノード
@@ -3057,7 +3718,7 @@
             members: shown, more: node.members.length - shown.length, categories: [], hint: 'クリックで記事の一覧を開く',
           };
         }
-        return { categories: (node.page.categories ?? []).slice(0, 3), hint: 'クリックで詳しく読む' };
+        return { categories: (node.page.categories ?? []).slice(0, 3), hint: node.__system ? 'クリックで星系を開いて詳しく読む' : 'クリックで詳しく読む' };
       }
 
       // 「なぜこの星が隣にあるか」の一行。グラフの辺の由来 (類似・出リンク・被リンク・共有カテゴリ) を言葉にする
@@ -3173,6 +3834,7 @@
         const node = this.graph.get(`a:${page.id}`)
           ?? this.graph.addNow(Wikiwalker.articleNode(page, parent ? parent.depth + 1 : 0), parent, 'member');
         this.current = node;
+        node.visited = true;  // 訪れた記事星は、遠ざかっても惑星ごと銀河として残る
         this.graph.select(node);
         this.graph.focus(node);
         $('#intro').classList.add('hidden');
