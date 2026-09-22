@@ -3329,6 +3329,9 @@
         this.panel.addEventListener('click', () => { if (this.mode === 'dock' && this.notch) this.setMode('sheet'); });  // ノッチはどこを押しても開く
         this.read.addEventListener('click', () => this.setMode('sheet'));
         this.installGrip();
+        // 中身の差し替え (記事名・定義文・節構成の到着) で箱の実寸が変わったら、落ち着いた寸法を取り直して注視点の寄せに伝える。
+        // 指に追従中と変形中の途中の寸法は無視する (変形が終わると CSS の寸法に戻り、もう一度通知が来る)
+        new ResizeObserver(() => this.resettle()).observe(this.panel);
         document.addEventListener('keydown', (event) => {
           if (event.key === 'Escape' && !event.isComposing && this.isOpen && this.mode === 'sheet') this.setMode('dock');
         });
@@ -3348,7 +3351,7 @@
         this.panel.classList.add('open');
         if (!wasOpen) {
           this.panel.classList.add('entering');
-          this.panel.addEventListener('animationend', () => this.panel.classList.remove('entering'), { once: true });
+          this.panel.addEventListener('animationend', () => { this.panel.classList.remove('entering'); this.resettle(); }, { once: true });  // 入場中は位置がずれているので終わりで取り直す
         }
         if (!wasOpen || this.mode !== mode) this.setMode(mode, { morph: wasOpen });
       }
@@ -3379,6 +3382,14 @@
         const rect = this.panel.getBoundingClientRect();
         this.settledWidth = rect.width;
         this.settledTop = rect.top;
+      }
+
+      // 開いたままの実寸の変化 (中身の差し替え・入場アニメーションの終わり) を取り直し、変わっていれば寄せに伝える
+      resettle() {
+        if (!this.isOpen || this.panel.classList.contains('dragging') || this.panel.classList.contains('morphing')) return;
+        const { settledTop, settledWidth } = this;
+        this.settle();
+        if (this.settledTop !== settledTop || this.settledWidth !== settledWidth) this.onModeChange?.(this.mode);
       }
 
       // 切り替え前の実寸 (before) から今の実寸へ、箱の位置と大きさを ease-in-out でつなぐ (FLIP)。
