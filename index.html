@@ -198,7 +198,7 @@
     @keyframes pulse { 50% { opacity: .35; transform: scale(.72); } }
 
     /* 左上の HUD: 凡例と、その下の操作案内。どちらも同じ小さな箱で、探索中だけ見える */
-    .hud { position: absolute; z-index: 5; left: 22px; top: 104px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+    .hud { position: absolute; z-index: 5; left: calc(22px + env(safe-area-inset-left)); top: 104px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
     .legend, .controls-hint {
       padding: 12px 14px;
       color: var(--muted); background: rgba(7,11,16,.58); border: 1px solid rgba(211,228,218,.09);
@@ -476,7 +476,7 @@
       .history { grid-column: 2; }
       .history-position { display: none; }
       .status { top: 78px; }
-      .hud { top: 84px; left: 14px; }
+      .hud { top: 84px; left: calc(14px + env(safe-area-inset-left)); }
       .controls-hint { display: none; }  /* 狭い画面では凡例だけ */
       /* 狭い画面では右の柱ではなく下からのシートにする。帯も同じ場所に出る。
          シートは可視領域の 55% までにして星図を指で操作できる場所を上に残し、つまみを引き上げると検索欄の下まで伸びる (tall) */
@@ -506,6 +506,55 @@
       .intro p { font-size: 14px; padding: 0 20px; }
       .hud { top: 76px; }
       .detail h2 { font-size: 22px; }
+    }
+    /* 横向きのスマホ (高さ 520px 以下): 幅はあるが高さがない。幅で決めた上の規則より後に置いて上書きする。
+       ヘッダーは狭い画面と同じ 1 段に詰め、シートは下から 55% ではなく右の柱 (ヘッダーの下から画面下まで) にして本文の行数を稼ぐ。
+       帯もシートと同じ幅で右下。権利表示は画面下いっぱいではなくシートの左に収め、シートと帯はその高さを引かない (--credit-height を 0 に戻す)。
+       つまみは使わない (右の柱を上下に引いても意味がないので、帯 ⇄ シートはボタンで切り替える) */
+    @media (max-height: 520px) {
+      :root { --credit-height: 0px; }
+      .topbar { grid-template-columns: 1fr auto; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 10px calc(14px + env(safe-area-inset-left)); }
+      .brand { display: none; }
+      .search-shell { grid-column: 1; min-width: 0; }
+      .history { position: static; grid-column: 2; }
+      .history-position { display: none; }
+      .search-row { min-height: 44px; }
+      .search-results { top: 52px; max-height: calc(var(--app-height, 100vh) - 80px); }
+      .status { top: 68px; }
+      .hud { top: 72px; left: calc(14px + env(safe-area-inset-left)); }
+      .controls-hint { display: none; }
+      /* 初期画面: 見出しを 1 行にし、余白を詰めて高さ 300px 程度に収める */
+      .intro { --base-y: -50%; }
+      .intro-kicker { font-size: 11px; }
+      .intro h1 { margin: 10px 0 8px; font-size: clamp(30px, 9vh, 44px); }
+      .intro h1 br { display: none; }
+      .intro h1 .punct { margin-right: 0; }
+      .intro h1 em .punct { margin-right: -.5em; }  /* 1 行なので行末の句点だけ詰める */
+      .intro p { padding: 0; font-size: 13px; line-height: 1.7; }
+      .intro-search { margin-top: 16px; }
+      /* シート: 右の柱。幅は画面の半分まで (左半分を星図に残す) */
+      .detail.sheet, .detail.sheet.tall {
+        right: calc(14px + env(safe-area-inset-right)); top: calc(72px + env(safe-area-inset-top)); bottom: calc(14px + env(safe-area-inset-bottom));
+        width: min(420px, calc(50% - 14px)); max-height: none; animation-name: sheet-in;
+      }
+      .detail-head { padding: 12px 16px 10px; }
+      .detail-meta { margin-bottom: 6px; }
+      .detail h2 { font-size: 20px; }
+      .detail-body { min-height: 0; padding: 12px 16px 16px; }
+      /* 帯: 右下、シートと同じ幅。マウスの広い画面のノッチはそのままで、上端だけヘッダーの下へ */
+      @media (hover: none), (max-width: 840px) {
+        .detail.dock { right: calc(14px + env(safe-area-inset-right)); top: auto; bottom: calc(14px + env(safe-area-inset-bottom)); width: min(420px, calc(50% - 14px)); max-height: none; animation-name: panel-in; }
+        .detail.dock .detail-head { padding-top: 12px; }
+        .detail.dock .detail-definition { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .detail-grip { display: none; }
+      }
+      @media (hover: hover) and (min-width: 841px) {
+        .detail.dock { top: calc(72px + env(safe-area-inset-top)); }
+      }
+      .attribution { left: calc(14px + env(safe-area-inset-left)); right: auto; bottom: calc(8px + env(safe-area-inset-bottom)); max-width: calc(100% - 42px - min(420px, calc(50% - 14px)) - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+      /* 言語選択: 一覧の高さを固定せず、ダイアログの残りの高さに収める */
+      dialog[open] { display: flex; flex-direction: column; }
+      .language-grid { flex: 1 1 auto; min-height: 0; max-height: none; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -1597,7 +1646,7 @@
         this.viewShift = 0;       // 着陸シートの分だけ注視点を左へずらしている量 (px)
         this.viewShiftY = 0;      // 狭い画面で下からのシートや帯の分だけ注視点を上へずらしている量 (px)
         this.viewShiftFrame = null;
-        this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅 (シートが下から出る)
+        this.compact = window.matchMedia('(max-width: 840px) and (min-height: 521px)');  // CSS のレスポンシブ切り替えと同じ条件 (シートが下から出る。横向きのスマホは右の柱)
         this.nodes = [];
         this.links = [];
         this.byId = new Map();
@@ -3323,7 +3372,7 @@
         this.settledWidth = 0;
         this.settledTop = 0;  // 変形後の落ち着いた上端 (狭い画面で注視点を上へ寄せる量はこれで決める)
         this.notchMedia = window.matchMedia('(hover: hover) and (min-width: 841px)');  // CSS のノッチ条件と同じ
-        this.gripMedia = window.matchMedia('(hover: none) and (max-width: 840px)');   // CSS のつまみ条件と同じ
+        this.gripMedia = window.matchMedia('(hover: none) and (max-width: 840px) and (min-height: 521px)');  // CSS のつまみ条件と同じ (横向きのスマホは右の柱なのでつまみなし)
         this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         this.toggle.addEventListener('click', (event) => { event.stopPropagation(); this.setMode(this.mode === 'sheet' ? 'dock' : 'sheet'); });
         this.panel.addEventListener('click', () => { if (this.mode === 'dock' && this.notch) this.setMode('sheet'); });  // ノッチはどこを押しても開く
@@ -3786,7 +3835,8 @@
             if (mode === 'sheet' && this.current && this.detail.shown === this.current) this.loadSections(this.current, this.controller?.signal);
           },
         });
-        this.compact = window.matchMedia('(max-width: 840px)');  // CSS のレスポンシブ切り替えと同じ幅
+        this.compact = window.matchMedia('(max-width: 840px) and (min-height: 521px)');  // CSS のレスポンシブ切り替えと同じ条件 (シートが下から出る。横向きのスマホは右の柱)
+        this.short = window.matchMedia('(max-height: 520px)');  // 横向きのスマホ: 帯もシートと同じ幅で右半分を覆う
         window.addEventListener('resize', () => { this.detail.settle(); this.syncViewShift(); });  // 幅が変わればシートの実寸も変わる
         // 権利表示の実寸を CSS 変数に入れ、シートと帯がその上に乗るようにする (幅や言語で行数が変わる)
         const credit = $('.attribution');
@@ -4015,11 +4065,15 @@
         else this.openCluster(node);
       }
 
-      // シートが右を覆う間は注視点をその半分だけ左へ寄せ、星がシートの陰に入らないようにする。
+      // シートが右を覆う間は注視点をその半分だけ左へ寄せ、星がシートの陰に入らないようにする (横向きのスマホでは帯も同じ幅なので同様に寄せる)。
       // 狭い画面ではシートと帯が下から覆うので、ヘッダーの下からその上端までに残る帯状の視野の中心へ注視点を上へ寄せる
       syncViewShift() {
         if (!this.detail.isOpen) { this.graph.shiftView(0, 0); return; }
-        if (!this.compact.matches) { this.graph.shiftView(this.detail.mode === 'sheet' ? this.detail.settledWidth / 2 : 0); return; }
+        if (!this.compact.matches) {
+          const covers = this.detail.mode === 'sheet' || (this.short.matches && !this.detail.notch);
+          this.graph.shiftView(covers ? this.detail.settledWidth / 2 : 0);
+          return;
+        }
         const height = window.innerHeight;
         const top = this.topbar.getBoundingClientRect().bottom;
         this.graph.shiftView(0, Math.max(0, Math.round(height / 2 - (top + this.detail.settledTop) / 2)));  // 変形中の途中ではなく、落ち着いた位置で
