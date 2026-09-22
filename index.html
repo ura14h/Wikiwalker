@@ -17,7 +17,8 @@
       --line: rgba(211, 228, 218, .22);
       --accent: #c9ffb6;
       --accent-2: #7fe3cd;
-      --warm: #f3c887;
+      --warm: #f3c887;       /* 押せる文言の色: シート内で辿れる文字 (記事リンク・種別ラベル・所属の記事名) はすべてこの色 */
+      --warm-bright: #ffe0ad;
       --danger: #ff9b8f;
       --shadow: 0 24px 70px rgba(0, 0, 0, .42);
       --radius: 18px;
@@ -297,8 +298,8 @@
     .detail-read:hover { background: rgba(201,255,182,.12); }
     .detail-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
     .detail-kind { display: flex; align-items: center; gap: 9px; min-width: 0; }
-    .detail-type { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-2); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; text-decoration: none; }
-    .detail-type[href]:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+    .detail-type { display: inline-flex; align-items: center; gap: 5px; color: var(--warm); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; text-decoration: none; }
+    .detail-type[href]:hover { color: var(--warm-bright); text-decoration: underline; text-underline-offset: 3px; }
     .detail-type:not([href]) { color: var(--muted); }
     /* 外部リンク (Wikipedia へ遷移する) ことを示す矢印アイコン。リンクでないときは出さない */
     .detail-type svg { width: 11px; height: 11px; flex: none; }
@@ -312,11 +313,17 @@
     .detail h2 { margin: 0; font: 500 26px/1.18 var(--serif); letter-spacing: -.02em; }
     .detail-categories { margin-top: 8px; color: var(--faint); font-size: 12px; line-height: 1.65; }
     /* 惑星パネルの所属表示。親の記事名はクリックでその恒星を選択できる */
-    .detail-parent { padding: 0; border: 0; background: none; color: var(--accent-2); font: inherit; font-weight: 600; cursor: pointer; }
-    .detail-parent:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+    .detail-parent { padding: 0; border: 0; background: none; color: var(--warm); font: inherit; font-weight: 600; cursor: pointer; }
+    .detail-parent:hover { color: var(--warm-bright); text-decoration: underline; text-underline-offset: 3px; }
     .detail-body { min-height: 88px; padding: 16px 20px 20px; overflow-y: auto; overscroll-behavior: contain; }
-    .detail-body p { margin: 0; color: #d1dad5; font: 15px/1.8 var(--serif); }
-    .detail-body p + p { margin-top: .9em; }
+    /* 本文の書体は容れ物に置く: 段落以外のブロック (箇条書き・定義リスト・引用) や、容れ物に直に置かれた文にも同じ書体が回る */
+    .detail-content { color: #d1dad5; font: 15px/1.8 var(--serif); }
+    .detail-content p { margin: 0; }
+    .detail-content p + p { margin-top: .9em; }
+    .detail-content :is(ul, ol) { margin: .5em 0; padding-left: 1.4em; }
+    .detail-content dl { margin: .5em 0; }
+    .detail-content dd { margin-left: 1.4em; }
+    .detail-content blockquote { margin: .5em 0 .5em 1em; }
     /* 導入部の後ろに節の一覧。見出しを選ぶとその場で本文が開く (畳んだ節はグリッドの行の高さ 0fr → 1fr で滑らかに伸びる) */
     .detail-toc { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
     .detail-toc:empty { display: none; }
@@ -333,11 +340,18 @@
     .detail-section.open > .detail-section-body { grid-template-rows: 1fr; }
     .detail-section.open > .detail-section-body > div { opacity: 1; transform: none; transition-delay: .05s; }
     /* 開いた節の本文は番号の分だけ字下げし、左に細い罫を引いて見出しとの所属を示す */
-    .detail-section-body :is(p, ul, ol, dl, blockquote):not(.detail-subsections) { margin: 4px 0 12px 5px; padding-left: 15px; border-left: 1px solid rgba(211,228,218,.14); color: #d1dad5; font: 14.5px/1.85 var(--serif); }
-    .detail-section-body :is(ul, ol):not(.detail-subsections) { padding-left: calc(15px + 1.2em); }
+    .detail-section-body > div { color: #d1dad5; font: 14.5px/1.85 var(--serif); }
+    .detail-section-body > div > :is(p, ul, ol, dl, blockquote) { margin: 4px 0 12px 5px; padding-left: 15px; border-left: 1px solid rgba(211,228,218,.14); }
+    .detail-section-body > div > :is(ul, ol) { padding-left: calc(15px + 1.2em); }
+    .detail-section-body :is(ul, ol) :is(ul, ol) { margin: 2px 0; padding-left: 1.2em; }  /* 入れ子の箇条書きは罫を重ねない */
+    .detail-section-body dd { margin-left: 1.4em; }
     .detail-section-body li { margin: 2px 0; }
     .detail-section-body p + p { margin-top: 0; }
     .detail-body cite { font-style: normal; }
+    .detail-body p.detail-note { color: var(--muted); font-size: .92em; }  /* 「→「X」を参照」の案内 */
+    /* 本文中の記事リンク: 押せる文言の色 (アンバー)。種別ラベルや所属の記事名と同じ色にして「この色の文字は辿れる」と読めるようにする。下線は淡く */
+    .detail-body .article-link { color: var(--warm); text-decoration: underline; text-decoration-color: rgba(243,200,135,.3); text-decoration-thickness: 1px; text-underline-offset: 3px; transition: color .15s, text-decoration-color .15s; }
+    .detail-body .article-link:hover { color: var(--warm-bright); text-decoration-color: currentColor; }
     .detail-section-empty { color: var(--faint); font-size: 12.5px; }
     /* 入れ子の節 (h3 以下): 番号なし、小さめ、字下げ */
     .detail-section-body .detail-subsections { margin: 0 0 8px 20px; padding: 0; list-style: none; }
@@ -366,19 +380,19 @@
     /* 通信中は上段の背景色と、折りたたみ中でも見える種別ラベル横の回転リングで知らせる */
     .detail.loading .detail-head { background: rgba(127,227,205,.16); border-color: rgba(127,227,205,.55); }
     /* 収集の進捗バー: 上段の下辺に沿って左から伸びる細い光の線。弱いグローと流れるハイライトで、待つ間の目を引く。
-       伸びは 0 → 1 で単調 (総量の見積もりが増えても戻らない)。完了で右端まで伸び切ってから消える */
+       伸びは 0 → 1 で単調 (総量の見積もりが増えても戻らない)。完了で右端まで伸び切ってから消える。
+       伸びる速さは JS が場面で変える (--progress-time): 応答が届いたときは短く、応答を待つ間はゆっくり滲むように、別の記事に切り替えたときは 0 */
     .detail-head { position: relative; }
     .detail-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; pointer-events: none; opacity: 0; transition: opacity .5s .3s; }
-    .detail-progress::before {
-      content: ''; position: absolute; inset: 0; width: calc(var(--progress, 0) * 100%); background: var(--accent-2);
-      box-shadow: 0 0 8px rgba(127,227,205,.8), 0 0 18px rgba(127,227,205,.35); transition: width .45s var(--ease-out);
-    }
+    .detail-progress::before, .detail-progress::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--progress, 0) * 100%); transition: width var(--progress-time, .45s) var(--progress-ease, var(--ease-out)); }
+    .detail-progress::before { background: var(--accent-2); box-shadow: 0 0 8px rgba(127,227,205,.8), 0 0 18px rgba(127,227,205,.35); }
+    /* ハイライトは伸びた分の上を左から右へ流れる: 伸びた分と同じ幅の箱に、その 3 倍幅の帯 (中央だけ明るい) を敷いて横にずらす。
+       箱の幅に対する相対位置なので、バーが短い最初のうちからその中を流れる */
     .detail-progress::after {
-      content: ''; position: absolute; top: 0; bottom: 0; width: 28%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+      background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%) 100% 0 / 300% 100% no-repeat;
       animation: progress-sheen 1.8s ease-in-out infinite; mix-blend-mode: screen;
-      clip-path: inset(0 calc((1 - var(--progress, 0)) * 100%) 0 0);  /* ハイライトは伸びた分の上だけを流れる */
     }
-    @keyframes progress-sheen { from { left: -28%; } to { left: 100%; } }
+    @keyframes progress-sheen { from { background-position-x: 100%; } to { background-position-x: 0%; } }
     .detail.loading .detail-progress { opacity: 1; transition-delay: 0s; }
     .detail.dock .detail-progress { display: none; }
     /* 帯 (ノッチ) では横棒が収まらないので、代わりに回転リングで取得中を示す */
@@ -628,7 +642,7 @@
         <div class="detail-progress" id="detailProgress" role="progressbar" aria-label="関連記事の収集" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"></div>
       </div>
       <div class="detail-body" id="detailBody">
-        <div id="detailContent"></div>
+        <div class="detail-content" id="detailContent"></div>
         <nav class="detail-toc" id="detailToc" aria-label="記事の節"></nav>
         <dl class="detail-stats" id="detailStats"></dl>
       </div>
@@ -689,11 +703,14 @@
     // =====================================================================
 
     const CONFIG = {
-      // 呼び出しレート: 同時 1 件。対話的な要求 (検索・記事表示) は 320ms 間隔、背景の収集は 650ms 間隔にして
+      // 呼び出しレート: 要求の開始間隔で流量を決める。対話的な要求 (検索・記事表示) は 320ms 間隔、背景の収集は 650ms 間隔にして
       // 持続的な流量を 1.5 件/秒未満に抑える (匿名アクセスへのエッジ側の制限は API のエチケットより厳しく、
       // 429 応答には CORS ヘッダーが無いためブラウザからは Retry-After が読めない)。
-      // 1 秒超の応答の後はキュー全体を 5 秒休ませる (Robot policy)。
-      request: { minGap: 320, backgroundGap: 650, slowThreshold: 1000, slowGap: 5000 },
+      // 間隔は前の要求を送ってから数える (応答を待ってからではなく) ので往復時間が重なり、同時に飛ぶのは 2 件まで。
+      // 応答の到着が一定の歩みになり、収集の進捗が引っかからずに進む。
+      // 3 秒超の応答の後はキュー全体を 5 秒休ませる (Robot policy)。類似検索や 50 件のカテゴリ取得は素で 1〜2 秒かかるので、
+      // 1 秒だと普通の応答を混雑と誤認して毎回止まる。本当の過負荷 (レプリカ遅延) は背景要求の maxlag=5 で検出している
+      request: { minGap: 320, backgroundGap: 650, maxInFlight: 2, slowThreshold: 3000, slowGap: 5000 },
       // 優先度の段: 検索 3 > 記事詳細 (クリック) 2 > 覗きカード (ホバー) 1 > 背景の収集 0。クリックはホバーを常に追い越す
       priority: { search: 3, page: 2, peek: 1, background: 0 },
 
@@ -874,11 +891,12 @@
     // Wikipedia の利用制限を守るため、全リクエストを 1 本の直列キューに通す。
     // priority が高いタスク (検索・記事表示) は待ち行列の先頭に割り込む。
     class RequestQueue {
-      constructor({ minGap, backgroundGap, slowThreshold, slowGap }) {
-        Object.assign(this, { minGap, backgroundGap, slowThreshold, slowGap });
+      constructor({ minGap, backgroundGap, maxInFlight, slowThreshold, slowGap }) {
+        Object.assign(this, { minGap, backgroundGap, maxInFlight, slowThreshold, slowGap });
         this.tasks = [];
         this.readyAt = 0;     // サーバー指示や遅い応答による全体の保留が明ける時刻
-        this.finishedAt = 0;  // 直前のリクエストが完了した時刻。次の間隔はここから数える
+        this.startedAt = 0;   // 直前のリクエストを送った時刻。次の間隔はここから数える (応答を待たない)
+        this.inFlight = 0;    // 応答待ちの件数
         this.pumping = false;
       }
 
@@ -891,9 +909,13 @@
         });
       }
 
-      // サーバーから待機を指示されたとき (Retry-After など) や、遅い応答の後に全体を止める
-      holdFor(ms) { this.readyAt = Math.max(this.readyAt, Date.now() + ms); }
+      // サーバーから待機を指示されたとき (Retry-After など) や、遅い応答の後に全体を止める。明ける時刻は onHold で知らせる (進捗バーが待ちを滑らかに埋める)
+      holdFor(ms) {
+        this.readyAt = Math.max(this.readyAt, Date.now() + ms);
+        this.onHold?.(this.readyAt);
+      }
 
+      // 送る間隔は前の送信から数え、応答は待たない (同時 maxInFlight 件まで)。流量は同じまま往復時間が重なり、到着が一定の歩みになる
       async pump() {
         if (this.pumping) return;
         this.pumping = true;
@@ -903,15 +925,18 @@
 
           // 間隔は次に通すタスクの種類で決める。待機は小刻みにして、その間に割り込んだ優先タスクを先に通せるようにする
           const gap = task.priority > 0 ? this.minGap : this.backgroundGap;
-          const wait = Math.max(this.readyAt, this.finishedAt + gap) - Date.now();
-          if (wait > 0) { await sleep(Math.min(wait, 100)); continue; }
+          const wait = Math.max(this.readyAt, this.startedAt + gap) - Date.now();
+          if (wait > 0 || this.inFlight >= this.maxInFlight) { await sleep(wait > 0 ? Math.min(wait, 100) : 100); continue; }
           this.tasks.shift();
 
           const started = Date.now();
-          try { task.resolve(await task.run()); } catch (error) { task.reject(error); }
-
-          this.finishedAt = Date.now();
-          if (this.finishedAt - started > this.slowThreshold) this.holdFor(this.slowGap);
+          this.startedAt = started;
+          this.inFlight++;
+          task.run().then(task.resolve, task.reject).finally(() => {
+            this.inFlight--;
+            if (Date.now() - started > this.slowThreshold) this.holdFor(this.slowGap);
+            this.pump();  // 枠が空いたので、待っているタスクがあれば続ける
+          });
         }
         this.pumping = false;
       }
@@ -1050,49 +1075,91 @@
         return new Map((data.query?.pages ?? []).map((raw) => [raw.pageid, (raw.extract ?? '').trim()]));
       }
 
-      // 着陸シートで読む記事全文。TextExtracts の限定 HTML (段落・箇条書き・上付き下付きなど) を 1 回で取り、見出しで節の木にする。
-      // 表や画像は落ちるが本文は全部入り、10<sup>8</sup> のような表記も保てる。1 記事あたり 1 リクエスト (数十 KB) で、シートを開いているときだけ取る
+      // 着陸シートで読む記事全文。レンダリング済みの HTML (action=parse) を 1 回で取り、見出しで節の木にする。
+      // TextExtracts の限定 HTML と違って本文中のリンクが残るので、Wikipedia と同じように文中の記事名から隣の星へ辿れる。
+      // 代わりに表・infobox・脚注・画像などが混ざってくるので parseArticle で落とす。infobox の多い記事は数百 KB になるが、
+      // シートを開いているときだけ、1 記事 1 リクエストで取る
       async article({ pageid, title }, signal) {
         const data = await this.request({
-          action: 'query', ...(pageid ? { pageids: pageid } : { titles: title }),
-          prop: 'extracts', exlimit: 1, redirects: 1,
+          action: 'parse', ...(pageid ? { pageid } : { page: title }), prop: 'text', redirects: 1,
+          disableeditsection: 1, disabletoc: 1, disablelimitreport: 1,
         }, { priority: CONFIG.priority.page, signal });
-        return WikiApi.parseExtract(data.query?.pages?.[0]?.extract ?? '');
+        return WikiApi.parseArticle(data.parse?.text ?? '', this.site);
       }
 
-      // 限定 HTML を h2〜h6 で節に切り、見出しの深さで入れ子にする。導入部 (最初の見出しより前) は intro に入る。
-      // 本文のブロックは許可した要素だけで組み直し (属性は捨てる)、それ以外の要素は中身だけ残す
-      static parseExtract(html) {
+      // レンダリング済み HTML を h2〜h6 で節に切り、見出しの深さで入れ子にする。導入部 (最初の見出しより前) は intro に入る。
+      // 見出しは <div class="mw-heading"> に包まれてくる。本文のブロックは許可した要素だけで組み直し (属性は捨てる)、
+      // 表・脚注などの読み物でない部品は丸ごと落とし、それ以外の要素は中身だけ残す
+      static parseArticle(html, site) {
         const doc = new DOMParser().parseFromString(html, 'text/html');
+        const content = doc.querySelector('.mw-parser-output') ?? doc.body;
         const root = { level: 1, line: '', blocks: [], children: [] };
         const stack = [root];
-        for (const element of doc.body.children) {
-          const heading = /^H([2-6])$/.exec(element.tagName);
+        for (const element of content.children) {
+          const heading = element.matches('h2, h3, h4, h5, h6') ? element : element.matches('.mw-heading') ? element.querySelector('h2, h3, h4, h5, h6') : null;
           if (heading) {
-            const section = { level: Number(heading[1]), line: element.textContent.trim(), blocks: [], children: [] };
+            const section = { level: Number(heading.tagName[1]), line: heading.textContent.trim(), blocks: [], children: [] };
             while (stack.length > 1 && stack[stack.length - 1].level >= section.level) stack.pop();
             stack[stack.length - 1].children.push(section);
             stack.push(section);
           } else {
-            const block = WikiApi.cleanNode(element);
-            if (block?.textContent.trim()) stack[stack.length - 1].blocks.push(block);
+            let block = WikiApi.cleanNode(element, site);
+            if (!block?.textContent.trim()) continue;
+            // div などの容れ物で中身が文だけ (段落の要素を含まない) なら段落にする。「→「X」を参照」の案内 (rellink) は控えめな注記として
+            if (block instanceof DocumentFragment && !block.querySelector('p, ul, ol, dl, blockquote')) {
+              const paragraph = document.createElement('p');
+              if (element.matches('.rellink, [role="note"]')) paragraph.className = 'detail-note';
+              paragraph.append(block);
+              block = paragraph;
+            }
+            stack[stack.length - 1].blocks.push(block);
           }
         }
         return { intro: root.blocks, sections: root.children };
       }
 
       static ALLOWED_TAGS = new Set(['p', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'blockquote', 'b', 'strong', 'i', 'em', 'sup', 'sub', 'cite', 'br']);
+      // 読み物でない部品: 表 (infobox・年表)、画像と図、脚注の番号 [1] と脚注一覧、案内 (hatnote)、テンプレートの注意書き、ナビボックス、地図
+      static DROPPED = 'table, figure, img, audio, video, style, link, script, [typeof~="mw:File"], .reference, .mw-cite-backlink, .reflist, .references, .mw-references-wrap, .mw-editsection, .mw-empty-elt, .noprint, .noexcerpt, .hatnote, .ambox, .metadata, .navbox, .infobox, .thumb, .gallery, .side-box, .sistersitebox, .catlinks, .toc, .mw-authority-control, .mw-kartographer-container';
+      // 記事以外の名前空間 (英語の正式名と日本語の別名)。本文中のリンクのうち記事へのものだけを辿れるようにする
+      static NAMESPACES = new Set(['wikipedia', 'wp', 'project', 'help', 'h', 'template', 't', 'category', 'file', 'image', 'media', 'special', 'portal', 'talk', 'user', 'draft', 'module', 'mediawiki', 'timedtext',
+        'ファイル', '画像', 'カテゴリ', 'テンプレート', 'ヘルプ', '特別', 'ノート', '利用者', 'プロジェクト', 'ポータル', 'モジュール']);
 
-      static cleanNode(node) {
+      static cleanNode(node, site) {
         if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.nodeValue);
-        if (node.nodeType !== Node.ELEMENT_NODE) return null;
+        if (node.nodeType !== Node.ELEMENT_NODE || node.matches(WikiApi.DROPPED)) return null;
+        if (node.matches('.mwe-math-element')) {  // 数式: MathML の読み上げ用と画像の二重になるので、画像の代替文 (LaTeX) だけにする
+          const alt = node.querySelector('img')?.alt ?? node.textContent;
+          return document.createTextNode(alt.replace(/^\{\\displaystyle\s*([\s\S]*)\}$/, '$1').trim());
+        }
         const tag = node.tagName.toLowerCase();
-        const target = WikiApi.ALLOWED_TAGS.has(tag) ? document.createElement(tag) : document.createDocumentFragment();
+        const article = tag === 'a' ? WikiApi.linkedArticle(node) : null;
+        let target;
+        if (article) {
+          target = document.createElement('a');
+          target.className = 'article-link';
+          target.href = `${site.baseUrl}${node.getAttribute('href')}`;  // 実際の URL も持たせる (新しいタブで開く・長押しなどはそのまま Wikipedia へ)
+          target.dataset.title = article;
+        } else {
+          target = WikiApi.ALLOWED_TAGS.has(tag) ? document.createElement(tag) : document.createDocumentFragment();
+        }
         for (const child of node.childNodes) {
-          const cleaned = WikiApi.cleanNode(child);
+          const cleaned = WikiApi.cleanNode(child, site);
           if (cleaned) target.append(cleaned);
         }
         return target;
+      }
+
+      // 本文中のリンクが辿れる記事へのものなら、その記事名。外部リンク・他言語版・未作成 (赤リンク)・同じ記事内の節・記事以外の名前空間は null
+      static linkedArticle(anchor) {
+        const href = anchor.getAttribute('href') ?? '';
+        const match = /^\/wiki\/([^#?]+)/.exec(href);
+        if (!match || anchor.classList.contains('new')) return null;
+        let title;
+        try { title = decodeURIComponent(match[1]).replace(/_/g, ' ').trim(); } catch { return null; }
+        const prefix = title.split(':')[0];
+        if (prefix !== title && WikiApi.NAMESPACES.has(prefix.toLowerCase())) return null;
+        return title || null;
       }
 
       // 類似記事 (CirrusSearch の morelike:) を抜粋・カテゴリ付きで 1 回で取る。順位は rank に入る。
@@ -3344,9 +3411,10 @@
     // =====================================================================
 
     class DetailPanel {
-      constructor({ onPickMember, onPickParent, onModeChange }) {
+      constructor({ onPickMember, onPickParent, onPickLink, onModeChange }) {
         this.onPickMember = onPickMember;
         this.onPickParent = onPickParent;
+        this.onPickLink = onPickLink;  // 本文中の記事リンク: Wikipedia へ飛ばずにその記事星へ移る
         this.onModeChange = onModeChange;  // sheet ⇄ dock の切り替えをグラフの視野合わせに伝える
         this.panel = $('#detail');
         this.grip = this.panel.querySelector('.detail-grip');
@@ -3378,6 +3446,13 @@
         this.panel.addEventListener('click', () => { if (this.mode === 'dock' && this.notch) this.setMode('sheet'); });  // ノッチはどこを押しても開く
         this.read.addEventListener('click', () => this.setMode('sheet'));
         this.installGrip();
+        // 本文中の記事リンクは、普通のクリックならその記事星へ (修飾キー付き・中ボタンはブラウザに任せて Wikipedia を新しいタブで開く)
+        this.body.addEventListener('click', (event) => {
+          const link = event.target.closest('a.article-link');
+          if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          this.onPickLink?.(link.dataset.title);
+        });
         // 中身の差し替え (記事名・定義文・節構成の到着) で箱の実寸が変わったら、落ち着いた寸法を取り直して注視点の寄せに伝える。
         // 指に追従中と変形中の途中の寸法は無視する (変形が終わると CSS の寸法に戻り、もう一度通知が来る)
         new ResizeObserver(() => this.resettle()).observe(this.panel);
@@ -3694,21 +3769,55 @@
 
       // 別のノードを出すとき、バーを前のノードの長さから縮めて見せずに、そのノードの現在値へ即座に置く
       resetProgress(node) {
-        this.progress.style.transition = 'none';
-        this.progress.style.setProperty('--progress', (node.__progressShown ?? 0).toFixed(3));
-        void this.progress.offsetWidth;
-        this.progress.style.transition = '';
+        clearTimeout(this.creepTimer);
+        this.drawProgress(node.__progressShown ?? 0, 0);
+        void this.progress.offsetWidth;  // 0 秒の遷移をここで確定させ、次の伸びは通常の速さに戻す
       }
 
       // 収集の進捗 (0〜1)。値はノードに持ち (まだ表示していない到着中の星でも進む)、戻らないように単調にする。バーは表示中のノードだけ。
-      // 見積もりは途中で増えることがあるので、収集が終わる (final) までは右端まで伸ばさない
+      // 見積もりは途中で増えることがあるので、収集が終わる (final) までは右端まで伸ばさない。
+      // 応答は数個しか無く、届くたびに一段ずつ跳ねると引っかかって見えるので、跳ねた後は次の応答を待つ間もその段の途中まで
+      // ゆっくり滲ませる (creep)。滲んだ先も「見せた値」として持ち、次の応答がそれを超えるまで戻さない
       setProgress(node, fraction, { final = false } = {}) {
         if (!node) return;
         const value = Math.min(final ? 1 : .94, Math.max(node.__progressShown ?? 0, fraction));
         node.__progressShown = value;
+        if (!final) node.__progressStep = value;  // 滲みの基点 (最後に届いた応答の値)
         if (node !== this.shown) return;
-        this.progress.style.setProperty('--progress', value.toFixed(3));
+        this.drawProgress(value, 450);
         this.progress.setAttribute('aria-valuenow', value.toFixed(2));
+        clearTimeout(this.creepTimer);
+        if (final) return;
+        this.creepTimer = setTimeout(() => {
+          if (node !== this.shown) return;
+          if (this.holdUntil > Date.now()) { this.holdProgress(this.holdUntil); return; }  // 待機中に届いた応答の後も、待ちの残りを埋め続ける
+          node.__progressShown = this.creepTarget(node, .6);
+          this.drawProgress(node.__progressShown, 6000);  // ease-out なので初めは進み、次第に止まる (次の応答が来なければそこで待つ)
+        }, 450);
+      }
+
+      // 滲みの行き先: 最後の応答の値から次の段の途中まで (見積もりがまだ小さいうちに大きく滲まないよう、幅は 15% まで)
+      creepTarget(node, fraction) {
+        const step = 1 / Math.max(1, node.__progress?.expected ?? 1);
+        return Math.min(.94, Math.max(node.__progressShown ?? 0, (node.__progressStep ?? 0) + Math.min(step * fraction, .15)));
+      }
+
+      // 通信キューが待機に入った (混雑・遅い応答の後の休止)。明ける時刻が分かっているので、次の応答が来るまでの間を
+      // 一定の速さで次の段の手前まで進めて、止まって見えないようにする (明けてから送る要求の往復分も足す)
+      holdProgress(until) {
+        this.holdUntil = until;
+        const node = this.shown;
+        if (!node || !this.panel.classList.contains('loading') || node.__progressStep == null) return;
+        clearTimeout(this.creepTimer);
+        const remaining = Math.max(0, until - Date.now()) + 800;
+        node.__progressShown = this.creepTarget(node, .85);
+        this.drawProgress(node.__progressShown, remaining, 'linear');
+      }
+
+      drawProgress(value, milliseconds, easing = '') {
+        this.progress.style.setProperty('--progress-time', `${milliseconds}ms`);
+        this.progress.style.setProperty('--progress-ease', easing);
+        this.progress.style.setProperty('--progress', value.toFixed(3));
       }
 
       // 記事の集計 (カテゴリ = 惑星数、その他 = 惑星に入らなかった記事数、出リンク、被リンク)。
@@ -3813,7 +3922,9 @@
     class Wikiwalker {
       constructor() {
         this.status = new StatusBar();
-        this.api = new WikiApi(new RequestQueue(CONFIG.request), (text) => this.status.notice(text));
+        const queue = new RequestQueue(CONFIG.request);
+        queue.onHold = (until) => this.detail.holdProgress(until);  // 待機が決まったら、その間の進捗を計算で埋める
+        this.api = new WikiApi(queue, (text) => this.status.notice(text));
         this.graph = new GraphView($('#graph'), {
           onNodeClick: (node) => this.onNodeClick(node),
           onNodeHover: (node) => this.lookout.hover(node),
@@ -3829,6 +3940,7 @@
         this.detail = new DetailPanel({
           onPickMember: (page) => this.selectArticle(page),
           onPickParent: (star) => this.selectArticle(star.page),
+          onPickLink: (title) => this.followLink(title),
           onModeChange: (mode) => {
             this.syncViewShift();
             // 帯からシートへ開いたとき (ホバーのない端末の「読む」) に節構成を取る
@@ -4063,6 +4175,14 @@
       onNodeClick(node) {
         if (node.kind === 'article') this.selectArticle(node.page);
         else this.openCluster(node);
+      }
+
+      // 本文中の記事リンクを辿る。その記事がすでに星図にあれば (リダイレクト前の名前でなければ見つかる) その星へ、
+      // なければ記事名で取り寄せて今の星の隣に置く
+      followLink(title) {
+        const known = this.graph.nodes.find((node) => node.kind === 'article' && node.page.title === title);
+        if (known === this.current) return;  // 同じ記事の別の節へのリンク
+        this.selectArticle(known ? known.page : { title });
       }
 
       // シートが右を覆う間は注視点をその半分だけ左へ寄せ、星がシートの陰に入らないようにする (横向きのスマホでは帯も同じ幅なので同様に寄せる)。
